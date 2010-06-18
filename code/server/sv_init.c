@@ -737,6 +737,8 @@ void SV_Init( void )
 	Cvar_CheckRange( sv_zombietime, "1", NULL, CV_INTEGER );
 	Cvar_SetDescription( sv_zombietime, "Seconds to sink messages after disconnect" );
 	Cvar_Get ("nextmap", "", CVAR_TEMP );
+	sv_sayprefix = Cvar_Get ( "sv_sayprefix", "Console:", CVAR_ARCHIVE_ND );
+	sv_tellprefix = Cvar_Get ( "sv_tellprefix", "Console_Tell:", CVAR_ARCHIVE_ND );
 
 	sv_allowDownload = Cvar_Get ("sv_allowDownload", "1", CVAR_SERVERINFO);
 	Cvar_Get ("sv_dlURL", "urt.li", CVAR_SERVERINFO | CVAR_ARCHIVE);
