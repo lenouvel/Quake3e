@@ -217,6 +217,7 @@ typedef struct {
 #endif /* USE_CURL */
 
 	// demo information
+	int			demoprotocol;
 	char		demoName[MAX_OSPATH];
 	char		recordName[MAX_OSPATH]; // without extension
 	qboolean	explicitRecordName;
@@ -273,14 +274,14 @@ typedef struct {
 
 typedef struct {
 	netadr_t	adr;
-	char	  	hostName[MAX_NAME_LENGTH];
-	char	  	mapName[MAX_NAME_LENGTH];
-	char	  	game[MAX_NAME_LENGTH];
+	char		hostName[MAX_NAME_LENGTH];
+	char		mapName[MAX_NAME_LENGTH];
+	char		game[MAX_NAME_LENGTH];
 	int			netType;
 	int			gameType;
-	int		  	clients;
-	int         bots;
-	int		  	maxClients;
+	int			clients;
+	int			bots;
+	int			maxClients;
 	int			minPing;
 	int			maxPing;
 	int			ping;
@@ -288,7 +289,7 @@ typedef struct {
 	int			punkbuster;
 	int			auth;
 	int			password;
-	char 		modversion[MAX_NAME_LENGTH];
+	char		modversion[MAX_NAME_LENGTH];
 	int			g_humanplayers;
 	int			g_needpass;
 } serverInfo_t;

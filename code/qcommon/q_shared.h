@@ -26,29 +26,30 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#define Q3_VERSION            "Q3 1.32e"
+#define Q3_VERSION						"Q3 1.32e"
 #ifndef SVN_VERSION
   #define SVN_VERSION Q3_VERSION
 #endif
-#define CLIENT_WINDOW_TITLE   "Urban Terror"
-#define CONSOLE_WINDOW_TITLE  "UrT Console"
+#define CLIENT_WINDOW_TITLE		"Urban Terror"
+#define CONSOLE_WINDOW_TITLE	"UrT Console"
 // 1.32 released 7-10-2002
 
 //#define DEFAULT_GAME			"edawn"
 
-#define BASEGAME				"q3ut4"
-#define BASEDEMO				"demoq3"
-#define BASETA					"missionpack"
-#define STEAMPATH_NAME			"Quake 3 Arena"
-#define STEAMPATH_APPID			"2200"
+#define BASEGAME							"q3ut4"
+#define BASEDEMO							"demoq3"
+#define BASETA								"missionpack"
+#define STEAMPATH_NAME				"Quake 3 Arena"
+#define STEAMPATH_APPID				"2200"
 
-#define MAX_TEAMNAME            32
-#define MAX_MASTER_SERVERS      5	// number of supported master servers
+#define MAX_TEAMNAME					32
+#define MAX_MASTER_SERVERS		5	// number of supported master servers
 
 #define GAMENAME_FOR_MASTER		"Quake3Arena"
 #define HEARTBEAT_FOR_MASTER	"QuakeArena-1"
 
-#define DEMOEXT	"dm_"			// standard demo extension
+#define DEMOEXT								"dm_"			// standard demo extension
+#define URTDEMOEXT						"urtdemo"
 
 #ifdef _MSC_VER
 
