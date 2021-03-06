@@ -4310,6 +4310,11 @@ qboolean FS_ComparePaks( char *neededpaks, int len, qboolean dlstring ) {
 		// Ok, see if we have this pak file
 		havepak = qfalse;
 
+		// never autodownload any of the urbanterror paks
+		if ( FS_GamePak(fs_serverReferencedPakNames[i]) ) {
+			continue;
+		}
+
 		// Make sure the server cannot make us write to non-quake3 directories.
 		if ( FS_CheckDirTraversal( fs_serverReferencedPakNames[i] ) ) {
 			Com_Printf( "WARNING: Invalid download name %s\n", fs_serverReferencedPakNames[i] );
@@ -4689,6 +4694,7 @@ static void FS_Startup( void ) {
 	if ( fs_homepath->string[0] && Q_stricmp( fs_homepath->string, fs_basepath->string ) ) {
 		FS_AddGameDirectory( fs_homepath->string, fs_basegame->string );
 	}
+		FS_AddGameDirectory( fs_homepath->string, va( "%s/download", fs_gamedirvar->string ) );
 
 	// check for additional game folder for mods
 	if ( fs_gamedirvar->string[0] && Q_stricmp( fs_gamedirvar->string, fs_basegame->string ) ) {
