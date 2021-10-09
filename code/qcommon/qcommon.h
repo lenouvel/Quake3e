@@ -305,7 +305,7 @@ extern const int demo_protocols[];
 #define MASTER3_SERVER_NAME	"master.ioquake3.org"
 #endif
 #ifndef AUTHORIZE_SERVER_NAME
-#define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
+#define	AUTHORIZE_SERVER_NAME	"localhost"
 #endif
 
 #define	PORT_MASTER			27900
