@@ -263,7 +263,7 @@ ifneq ($(USE_RENDERER_DLOPEN),0)
 endif
 
 ifeq ($(USE_AUTH),1)
-  BASE_CFLAGS += -DUSE_AUTH=1
+  BASE_CFLAGS += -DUSE_AUTH
 endif
 
 ifdef DEFAULT_BASEDIR
