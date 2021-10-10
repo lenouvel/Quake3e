@@ -42,7 +42,7 @@ const int demo_protocols[] = { 66, 67, PROTOCOL_VERSION, URT_PROTOCOL_VERSION, N
 #define MIN_COMHUNKMEGS		48
 #define DEF_COMHUNKMEGS		96
 #else
-#define MIN_COMHUNKMEGS		128
+#define MIN_COMHUNKMEGS		512
 #define DEF_COMHUNKMEGS		1024
 #endif
 
