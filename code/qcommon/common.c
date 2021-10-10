@@ -2354,7 +2354,7 @@ void *Hunk_Alloc( int size, ha_pref preference ) {
 
 		Com_Error(ERR_DROP, "Hunk_Alloc failed on %i: %s, line: %d (%s)", size, file, line, label);
 #else
-		Com_Error(ERR_DROP, "Hunk_Alloc failed on %i" - try raising the com_hunkMegs value and restart your game., size);
+		Com_Error(ERR_DROP, "Hunk_Alloc failed on %i - try raising the com_hunkMegs value and restart your game.", size);
 #endif
 	}
 

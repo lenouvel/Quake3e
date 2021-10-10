@@ -39,8 +39,8 @@ USE_URT_DEMO     = 1
 
 USE_RENDERER_DLOPEN = 1
 
-CNAME            = urbanuerror
-DNAME            = urbanterror.ded
+CNAME            = urbanterror
+DNAME            = urbanterror-server
 
 RENDERER_PREFIX  = $(CNAME)
 
