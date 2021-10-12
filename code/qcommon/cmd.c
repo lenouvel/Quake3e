@@ -89,9 +89,9 @@ Adds command text at the end of the buffer, does NOT add a final \n
 */
 void Cbuf_AddText( const char *text ) {
 	int l;
-	
+
 	l = strlen (text);
-	
+
 	if (cmd_text.cursize + l >= cmd_text.maxsize)
 	{
 		Com_Printf ("Cbuf_AddText: overflow\n");
@@ -230,7 +230,7 @@ void Cbuf_Execute( void )
 
 		Com_Memcpy( line, text, i );
 		line[i] = '\0';
-		
+
 		// delete the text from the command buffer and move remaining commands down
 		// this is necessary because commands (exec) can insert data at the
 		// beginning of the text buffer
@@ -296,7 +296,7 @@ static void Cmd_Exec_f( void ) {
 	}
 	if (!quiet)
 		Com_Printf ("execing %s\n", filename);
-	
+
 	Cbuf_InsertText( f.c );
 
 #ifdef DELAY_WRITECONFIG
@@ -306,6 +306,50 @@ static void Cmd_Exec_f( void ) {
 #endif
 
 	FS_FreeFile( f.v );
+}
+
+/*
+===============
+Cmd_PVstr_f
+
+Execute a variable command on key press and release
+===============
+*/
+void Cmd_PVstr_f( void ) {
+	char *v = NULL;
+	static qboolean pushed[512] = {0};
+	int key;
+
+	// 5 args: +vstr <v1> <v2> <keycode> <timestamp> (CL_ParseBinding())
+	if (Cmd_Argc () != 5) {
+		Com_Printf ("+vstr <variablename1> <variablename2>: execute a variable command on key press and release\n");
+		return;
+	}
+
+	key = atoi(Cmd_Argv(3));
+	if (key >= ARRAY_LEN(pushed))
+		key = 0;
+
+	switch( Cmd_Argv( 0 )[0] ) {
+		case '+':
+			v = (char *) Cvar_VariableString( Cmd_Argv( 1 ) );
+			pushed[key] = qtrue;
+			break;
+		case '-':
+			// we check this because otherwise key release would fire even in the console...
+			if (pushed[key]) {
+				v = (char *) Cvar_VariableString( Cmd_Argv( 2 ) );
+				pushed[key] = qfalse;
+			}
+			break;
+		default:
+			Com_Printf("Cmd_PVstr_f: unexpected leading character '%c'\n", Cmd_Argv( 0 )[0]);
+			break;
+	}
+
+	if (v) {
+		Cbuf_InsertText( va("%s\n", v ) );
+	}
 }
 
 
@@ -480,7 +524,7 @@ void Cmd_Args_Sanitize( const char *separators )
 	for( i = 1; i < cmd_argc; i++ )
 	{
 		char *c = cmd_argv[i];
-		
+
 		while ( ( c = strpbrk( c, separators ) ) != NULL ) {
 			*c = ' ';
 			++c;
@@ -494,8 +538,8 @@ void Cmd_Args_Sanitize( const char *separators )
 Cmd_TokenizeString
 
 Parses the given string into command line tokens.
-The text is copied to a seperate buffer and 0 characters
-are inserted in the apropriate place, The argv array
+The text is copied to a separate buffer and 0 characters
+are inserted in the appropriate place, The argv array
 will point into this temporary buffer.
 ============
 */
@@ -517,7 +561,7 @@ static void Cmd_TokenizeString2( const char *text_in, qboolean ignoreQuotes ) {
 	if ( !text_in ) {
 		return;
 	}
-	
+
 	Q_strncpyz( cmd_cmd, text_in, sizeof( cmd_cmd ) );
 
 	text = cmd_cmd; // read from safe-length buffer
@@ -652,7 +696,7 @@ Cmd_AddCommand
 */
 void Cmd_AddCommand( const char *cmd_name, xcommand_t function ) {
 	cmd_function_t *cmd;
-	
+
 	// fail if the command already exists
 	if ( Cmd_FindCommand( cmd_name ) )
 	{
@@ -773,7 +817,7 @@ Cmd_CommandCompletion
 */
 void Cmd_CommandCompletion( void(*callback)(const char *s) ) {
 	const cmd_function_t *cmd;
-	
+
 	for ( cmd = cmd_functions ; cmd ; cmd=cmd->next ) {
 		callback( cmd->name );
 	}
@@ -837,7 +881,7 @@ void Cmd_ExecuteString( const char *text ) {
 			return;
 		}
 	}
-	
+
 	// check cvars
 	if ( Cvar_Command() ) {
 		return;
@@ -932,6 +976,9 @@ void Cmd_Init( void ) {
 	Cmd_SetCommandCompletionFunc( "exec", Cmd_CompleteCfgName );
 	Cmd_SetCommandCompletionFunc( "execq", Cmd_CompleteCfgName );
 	Cmd_AddCommand ("vstr",Cmd_Vstr_f);
+	Cmd_AddCommand ("vstr",Cmd_Vstr_f);
+	Cmd_AddCommand ("+vstr",Cmd_PVstr_f);
+	Cmd_AddCommand ("-vstr",Cmd_PVstr_f);
 	Cmd_SetCommandCompletionFunc( "vstr", Cvar_CompleteCvarName );
 	Cmd_AddCommand ("echo",Cmd_Echo_f);
 	Cmd_AddCommand ("wait", Cmd_Wait_f);

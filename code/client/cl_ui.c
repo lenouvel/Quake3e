@@ -40,6 +40,9 @@ static void GetClientState( uiClientState_t *state ) {
 	Q_strncpyz( state->updateInfoString, cls.updateInfoString, sizeof( state->updateInfoString ) );
 	Q_strncpyz( state->messageString, clc.serverMessage, sizeof( state->messageString ) );
 	state->clientNum = cl.snap.ps.clientNum;
+#ifdef USE_AUTH
+	Q_strncpyz( state->serverAddress, NET_AdrToStringwPort((const netadr_t *) &clc.serverAddress), sizeof( state->serverAddress ) );
+#endif
 }
 
 
@@ -61,7 +64,7 @@ void LAN_LoadCachedServers( void ) {
 			FS_FCloseFile( fileIn );
 		}
 		return;
-	} 
+	}
 
 	FS_Read( &cls.numglobalservers, sizeof(int), fileIn );
 	FS_Read( &cls.numfavoriteservers, sizeof(int), fileIn );
@@ -85,7 +88,6 @@ LAN_SaveServersToCache
 ====================
 */
 void LAN_SaveServersToCache( void ) {
-	
 	fileHandle_t fileOut;
 	int size;
 
@@ -312,6 +314,7 @@ static void LAN_GetServerInfo( int source, int n, char *buf, int buflen ) {
 		Info_SetValueForKey( info, "hostname", server->hostName);
 		Info_SetValueForKey( info, "mapname", server->mapName);
 		Info_SetValueForKey( info, "clients", va("%i",server->clients));
+		Info_SetValueForKey( info, "bots", va("%i",server->bots));
 		Info_SetValueForKey( info, "sv_maxclients", va("%i",server->maxClients));
 		Info_SetValueForKey( info, "ping", va("%i",server->ping));
 		Info_SetValueForKey( info, "minping", va("%i",server->minPing));
@@ -323,6 +326,9 @@ static void LAN_GetServerInfo( int source, int n, char *buf, int buflen ) {
 		Info_SetValueForKey( info, "punkbuster", va("%i", server->punkbuster));
 		Info_SetValueForKey( info, "g_needpass", va("%i", server->g_needpass));
 		Info_SetValueForKey( info, "g_humanplayers", va("%i", server->g_humanplayers));
+		Info_SetValueForKey( info, "auth", va("%i", server->auth));
+		Info_SetValueForKey( info, "password", va("%i", server->password));
+		Info_SetValueForKey( info, "modversion", server->modversion);
 		Q_strncpyz(buf, info, buflen);
 	} else {
 		if (buf) {
@@ -725,7 +731,7 @@ static int GetConfigString(int index, char *buf, int size)
 	}
 
 	Q_strncpyz( buf, cl.gameState.stringData+offset, size);
- 
+
 	return qtrue;
 }
 
@@ -796,11 +802,11 @@ static intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return Sys_Milliseconds();
 
 	case UI_CVAR_REGISTER:
-		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4] ); 
+		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4], uivm->privateFlag );
 		return 0;
 
 	case UI_CVAR_UPDATE:
-		Cvar_Update( VMA(1) );
+		Cvar_Update( VMA(1), uivm->privateFlag );
 		return 0;
 
 	case UI_CVAR_SET:
@@ -824,7 +830,7 @@ static intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return 0;
 
 	case UI_CVAR_CREATE:
-		Cvar_Register( NULL, VMA(1), VMA(2), args[3] );
+		Cvar_Register( NULL, VMA(1), VMA(2), args[3], uivm->privateFlag );
 		return 0;
 
 	case UI_CVAR_INFOSTRINGBUFFER:
@@ -977,7 +983,7 @@ static intptr_t CL_UISystemCalls( intptr_t *args ) {
 	case UI_GETCLIENTSTATE:
 		VM_CHECKBOUNDS( uivm, args[1], sizeof( uiClientState_t ) );
 		GetClientState( VMA(1) );
-		return 0;		
+		return 0;
 
 	case UI_GETGLCONFIG:
 		VM_CHECKBOUNDS( uivm, args[1], sizeof( glconfig_t ) );
@@ -1070,7 +1076,7 @@ static intptr_t CL_UISystemCalls( intptr_t *args ) {
 		CLUI_SetCDKey( VMA(1) );
 #endif
 		return 0;
-	
+
 	case UI_SET_PBCLSTATUS:
 		return 0;
 
@@ -1173,6 +1179,28 @@ static intptr_t CL_UISystemCalls( intptr_t *args ) {
 		VM_CHECKBOUNDS( uivm, args[1], args[2] );
 		return UI_GetValue( VMA(1), args[2], VMA(3) );
 		
+#ifdef USE_AUTH
+	case UI_NET_STRINGTOADR:
+		return NET_StringToAdr( VMA(1), VMA(2), NA_IP);
+
+	case UI_Q_VSNPRINTF:
+		return Q_vsnprintf( VMA(1), *((size_t *)VMA(2)), VMA(3), VMA(4));
+
+	case UI_NET_SENDPACKET:
+		{
+			netadr_t addr;
+			const char * destination = VMA(4);
+
+			NET_StringToAdr( destination, &addr, NA_IP);
+			NET_SendPacket( args[1], args[2], VMA(3), (const netadr_t *) &addr );
+		}
+		return 0;
+
+	case UI_COPYSTRING:
+		CopyString(VMA(1));
+		return 0;
+#endif
+
 	default:
 		Com_Error( ERR_DROP, "Bad UI system trap: %ld", (long int) args[0] );
 
@@ -1250,7 +1278,7 @@ void CL_InitUI( void ) {
 	uivm = VM_Create( VM_UI, CL_UISystemCalls, UI_DllSyscall, interpret );
 	if ( !uivm ) {
 		if ( cl_connectedToPureServer && CL_GameSwitch() ) {
-			// server-side modificaton may require and reference only single custom ui.qvm
+			// server-side modification may require and reference only single custom ui.qvm
 			// so allow referencing everything until we download all files
 			// new gamestate will be requested after downloads complete
 			// which will correct filesystem permissions

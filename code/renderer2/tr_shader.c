@@ -2912,9 +2912,9 @@ static void FixRenderCommandList( int newShader ) {
 
 				for( i = 0, drawSurf = ds_cmd->drawSurfs; i < ds_cmd->numDrawSurfs; i++, drawSurf++ ) {
 					R_DecomposeSort( drawSurf->sort, &entityNum, &sh, &fogNum, &dlightMap, &pshadowMap );
-                    sortedIndex = (( drawSurf->sort >> QSORT_SHADERNUM_SHIFT ) & (MAX_SHADERS-1));
+					sortedIndex = (( drawSurf->sort >> QSORT_SHADERNUM_SHIFT ) & (MAX_SHADERS-1));
 					if( sortedIndex >= newShader ) {
-						sortedIndex++;
+						sortedIndex = sh->sortedIndex;
 						drawSurf->sort = (sortedIndex << QSORT_SHADERNUM_SHIFT) | (entityNum << QSORT_REFENTITYNUM_SHIFT) | ( fogNum << QSORT_FOGNUM_SHIFT ) | ( (int)pshadowMap << QSORT_PSHADOW_SHIFT) | (int)dlightMap;
 					}
 				}
@@ -4032,7 +4032,7 @@ static void ScanAndLoadShaderFiles( void )
 
 	// scan for legacy shader files
 	shaderFiles = ri.FS_ListFiles( "scripts", ".shader", &numShaderFiles );
-	mtrFiles = ri.FS_ListFiles( "scripts", ".mtr", &numMtrFiles );
+	mtrFiles = ri.FS_ListFiles( "scripts", ".mtrx", &numMtrFiles );
 
 	if ( (!shaderFiles || !numShaderFiles) && (!mtrFiles || !numMtrFiles) ) {
 		ri.Printf( PRINT_WARNING, "WARNING: no shader files found\n" );

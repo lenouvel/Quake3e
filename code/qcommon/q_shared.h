@@ -26,43 +26,46 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#define Q3_VERSION            "Q3 1.32e"
+#define Q3_VERSION						"Q3 1.32e"
 #ifndef SVN_VERSION
   #define SVN_VERSION Q3_VERSION
 #endif
-#define CLIENT_WINDOW_TITLE   "Quake 3: Arena"
-#define CONSOLE_WINDOW_TITLE  "Quake 3 Console"
+#define CLIENT_WINDOW_TITLE		"Urban Terror"
+#define CONSOLE_WINDOW_TITLE	"UrT Console"
 // 1.32 released 7-10-2002
 
 //#define DEFAULT_GAME			"edawn"
 
-#define BASEGAME				"baseq3"
-#define BASEDEMO				"demoq3"
-#define BASETA					"missionpack"
-#define STEAMPATH_NAME			"Quake 3 Arena"
-#define STEAMPATH_APPID			"2200"
+#define BASEGAME							"q3ut4"
+#define BASEDEMO							"demoq3"
+#define BASETA								"missionpack"
+#define STEAMPATH_NAME				"Quake 3 Arena"
+#define STEAMPATH_APPID				"2200"
 
-#define MAX_TEAMNAME            32
-#define MAX_MASTER_SERVERS      5	// number of supported master servers
+#define MAX_TEAMNAME					32
+#define MAX_MASTER_SERVERS		5	// number of supported master servers
 
 #define GAMENAME_FOR_MASTER		"Quake3Arena"
 #define HEARTBEAT_FOR_MASTER	"QuakeArena-1"
 
-#define DEMOEXT	"dm_"			// standard demo extension
+#define DEMOEXT								"dm_"			// standard demo extension
+#define URTDEMOEXT						"urtdemo"
 
 #ifdef _MSC_VER
 
 #pragma warning(disable : 4018)     // signed/unsigned mismatch
-#pragma warning(disable : 4032)
-#pragma warning(disable : 4051)
+//#pragma warning(disable : 4032)
+//#pragma warning(disable : 4051)
 #pragma warning(disable : 4057)		// slightly different base types
 #pragma warning(disable : 4100)		// unreferenced formal parameter
-#pragma warning(disable : 4115)
+//#pragma warning(disable : 4115)
 #pragma warning(disable : 4125)		// decimal digit terminates octal escape sequence
 #pragma warning(disable : 4127)		// conditional expression is constant
-#pragma warning(disable : 4136)
+//#pragma warning(disable : 4136)
 #pragma warning(disable : 4152)		// nonstandard extension, function/data pointer conversion in expression
+#pragma warning(disable : 4200)		// nonstandard extension used: size-sided array in struct/union
 //#pragma warning(disable : 4201)
+#pragma warning(disable : 4206)		// nonstandard extension used: translation unit is empty
 //#pragma warning(disable : 4214)
 #pragma warning(disable : 4267)		// conversion from 'size_t' to 'int', possible loss of data
 #pragma warning(disable : 4244)
@@ -70,15 +73,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 //#pragma warning(disable : 4305)		// truncation from const double to float
 //#pragma warning(disable : 4310)		// cast truncates constant value
 //#pragma warning(disable:  4505) 	// unreferenced local function has been removed
-#pragma warning(disable : 4514)
+//#pragma warning(disable : 4514)
 #pragma warning(disable : 4702)		// unreachable code
 #pragma warning(disable : 4711)		// selected for automatic inline expansion
 #pragma warning(disable : 4220)		// varargs matches remaining parameters
+#pragma warning(disable : 4324)		// 'q_jpeg_error_mgr_s' : structure was padded due to alignment specifier
+#pragma warning(disable : 4091)		// 'typedef': ignored on lef of <..> when no variable is declared
 //#pragma intrinsic( memset, memcpy )
 #endif
 
-//Ignore __attribute__ on non-gcc platforms
-#ifndef __GNUC__
+//Ignore __attribute__ on non-gcc/clang platforms
+#if !defined(__GNUC__) && !defined(__clang__)
 #ifndef __attribute__
 #define __attribute__(x)
 #endif
@@ -170,6 +175,14 @@ float FloatSwap( const float *f );
 	#endif
 #endif
 
+#if defined (_WIN32) && !defined(_MSC_VER)
+#define Q_setjmp __builtin_setjmp
+#define Q_longjmp __builtin_longjmp
+#else
+#define Q_setjmp setjmp
+#define Q_longjmp longjmp
+#endif
+
 typedef unsigned char byte;
 
 typedef enum { qfalse = 0, qtrue } qboolean;
@@ -182,6 +195,12 @@ typedef union floatint_u
 	byte b[4];
 }
 floatint_t;
+
+typedef union {
+	byte rgba[4];
+	uint32_t u32;
+} color4ub_t;
+
 
 typedef int		qhandle_t;
 typedef int		sfxHandle_t;
@@ -412,8 +431,9 @@ extern	vec4_t		colorMdGrey;
 extern	vec4_t		colorDkGrey;
 
 #define Q_COLOR_ESCAPE	'^'
-#define Q_IsColorString(p) ( *(p) == Q_COLOR_ESCAPE && *((p)+1) && *((p)+1) != Q_COLOR_ESCAPE )
+#define Q_IsColorString(p) ( p && *p == Q_COLOR_ESCAPE && *(p+1) && *(p+1) >= '0' && *(p+1) <= '9' )
 
+// added Orange and Olive colours from UrT
 #define COLOR_BLACK		'0'
 #define COLOR_RED		'1'
 #define COLOR_GREEN		'2'
@@ -422,7 +442,9 @@ extern	vec4_t		colorDkGrey;
 #define COLOR_CYAN		'5'
 #define COLOR_MAGENTA	'6'
 #define COLOR_WHITE		'7'
-#define ColorIndex(c)	( ( (c) - '0' ) & 7 )
+#define COLOR_ORANGE 	'8'
+#define COLOR_OLIVE 	'9'
+#define ColorIndex(c)  ( ( (c) - '0' ) % 10 )
 
 #define S_COLOR_BLACK	"^0"
 #define S_COLOR_RED		"^1"
@@ -432,6 +454,8 @@ extern	vec4_t		colorDkGrey;
 #define S_COLOR_CYAN	"^5"
 #define S_COLOR_MAGENTA	"^6"
 #define S_COLOR_WHITE	"^7"
+#define S_COLOR_ORANGE 	"^8"
+#define S_COLOR_OLIVE  	"^9"
 
 extern const vec4_t	g_color_table[ 64 ];
 extern int ColorIndexFromChar( char ccode );
@@ -674,7 +698,7 @@ float Q_atof( const char *str );
 
 float Com_Clamp( float min, float max, float value );
 
-char	*COM_SkipPath( char *pathname );
+const char	*COM_SkipPath( const char *pathname );
 const char	*COM_GetExtension( const char *name );
 void	COM_StripExtension(const char *in, char *out, int destsize);
 qboolean COM_CompareExtension(const char *in, const char *ext);
@@ -800,7 +824,7 @@ char	*Q_stradd( char *dst, const char *src );
 
 // strlen that discounts Quake color sequences
 int Q_PrintStrlen( const char *string );
-// removes color sequences from string
+// removes color sequences, unprintable and special characters from string
 char *Q_CleanStr( char *string );
 // Count the number of char tocount encountered in string
 int Q_CountChar(const char *string, char tocount);
@@ -855,7 +879,7 @@ const char *Info_ValueForKeyToken( const char *key );
 qboolean Info_SetValueForKey_s( char *s, int slen, const char *key, const char *value );
 qboolean Info_Validate( const char *s );
 qboolean Info_ValidateKeyValue( const char *s );
-void Info_NextPair( const char **s, char *key, char *value );
+const char *Info_NextPair( const char *s, char *key, char *value );
 int Info_RemoveKey( char *s, const char *key );
 
 // this is only here so the functions in q_shared.c and bg_*.c can link
@@ -902,6 +926,7 @@ default values.
 #define CVAR_PRIVATE		0x8000	// can't be read from VM
 
 #define CVAR_DEVELOPER		0x10000 // can be set only in developer mode
+#define CVAR_NOTABCOMPLETE	0x20000 // no tab completion in console
 
 #define CVAR_ARCHIVE_ND		(CVAR_ARCHIVE | CVAR_NODEFAULT)
 
@@ -1075,7 +1100,7 @@ typedef enum {
 // per-level limits
 //
 #define	MAX_CLIENTS			64		// absolute limit
-#define MAX_LOCATIONS		64
+#define MAX_LOCATIONS		360
 
 #define	GENTITYNUM_BITS		10		// don't need to send any more
 #define	MAX_GENTITIES		(1<<GENTITYNUM_BITS)

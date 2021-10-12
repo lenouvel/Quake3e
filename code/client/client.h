@@ -196,8 +196,8 @@ typedef struct {
 
 	// file transfer from server
 	fileHandle_t download;
-	char		downloadTempName[MAX_OSPATH];
 	char		downloadName[MAX_OSPATH];
+	char		downloadTempName[MAX_OSPATH + 4]; // downloadName + ".tmp"
 	int			sv_allowDownload;
 	char		sv_dlURL[MAX_CVAR_VALUE_STRING];
 	int			downloadNumber;
@@ -217,6 +217,7 @@ typedef struct {
 #endif /* USE_CURL */
 
 	// demo information
+	int			demoprotocol;
 	char		demoName[MAX_OSPATH];
 	char		recordName[MAX_OSPATH]; // without extension
 	qboolean	explicitRecordName;
@@ -236,6 +237,7 @@ typedef struct {
 
 	float	aviVideoFrameRemainder;
 	float	aviSoundFrameRemainder;
+	int		aviFrameEndTime;
 	char	videoName[MAX_QPATH];
 	int		videoIndex;
 
@@ -272,18 +274,22 @@ typedef struct {
 
 typedef struct {
 	netadr_t	adr;
-	char	  	hostName[MAX_NAME_LENGTH];
-	char	  	mapName[MAX_NAME_LENGTH];
-	char	  	game[MAX_NAME_LENGTH];
+	char		hostName[MAX_NAME_LENGTH];
+	char		mapName[MAX_NAME_LENGTH];
+	char		game[MAX_NAME_LENGTH];
 	int			netType;
 	int			gameType;
-	int		  	clients;
-	int		  	maxClients;
+	int			clients;
+	int			bots;
+	int			maxClients;
 	int			minPing;
 	int			maxPing;
 	int			ping;
 	qboolean	visible;
 	int			punkbuster;
+	int			auth;
+	int			password;
+	char		modversion[MAX_NAME_LENGTH];
 	int			g_humanplayers;
 	int			g_needpass;
 } serverInfo_t;
@@ -348,7 +354,17 @@ typedef struct {
 	float		biasX;
 	float		biasY;
 
+	fontInfo_t	font;
+	qboolean	fontFont;
+
 } clientStatic_t;
+
+
+typedef enum {
+	ITEM_TEXTSTYLE_NORMAL,
+	ITEM_TEXTSTYLE_SHADOWED,
+	ITEM_TEXTSTYLE_SHADOWEDLESS
+} textStyle_t;
 
 extern int bigchar_width;
 extern int bigchar_height;
@@ -431,6 +447,13 @@ extern	cvar_t	*cl_stencilbits;
 extern	cvar_t	*cl_depthbits;
 extern	cvar_t	*cl_drawBuffer;
 
+#ifdef USE_AUTH
+extern  cvar_t	*cl_auth_engine;
+extern  cvar_t  *cl_auth;
+extern  cvar_t  *authc;
+extern  cvar_t  *authl; // Auth Login
+#endif
+
 //=================================================
 
 //
@@ -496,7 +519,6 @@ qboolean CL_ValidPakSignature( const byte *data, int len );
 //
 // console
 //
-void Con_CheckResize( void );
 void Con_Init( void );
 void Con_Shutdown( void );
 void Con_ToggleConsole_f( void );
@@ -510,14 +532,18 @@ void Con_Top( void );
 void Con_Bottom( void );
 void Con_Close( void );
 
+void Con_NextTab( void );
+void Con_PrevTab( void );
+
 void CL_LoadConsoleHistory( void );
 void CL_SaveConsoleHistory( void );
 
 //
 // cl_scrn.c
 //
-void	SCR_Init (void);
-void	SCR_UpdateScreen (void);
+void	SCR_Init( void );
+void	SCR_Done( void );
+void	SCR_UpdateScreen( void );
 
 void	SCR_DebugGraph( float value );
 
@@ -534,6 +560,9 @@ void	SCR_DrawStringExt( int x, int y, float size, const char *string, const floa
 void	SCR_DrawSmallStringExt( int x, int y, const char *string, const float *setColor, qboolean forceColor, qboolean noColorEscape );
 void	SCR_DrawSmallChar( int x, int y, int ch );
 void	SCR_DrawSmallString( int x, int y, const char *s, int len );
+
+void	SCR_DrawFontText(float x, float y, float scale, vec4_t color, const char *text, int style);
+int	SCR_FontWidth(const char *text, float scale);
 
 //
 // cl_cin.c

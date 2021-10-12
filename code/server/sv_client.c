@@ -137,7 +137,7 @@ void SV_GetChallenge( const netadr_t *from ) {
 
 	// Create a unique challenge for this client without storing state on the server
 	challenge = SV_CreateChallenge( svs.time >> TS_SHIFT, from );
-	
+
 	if ( Cmd_Argc() < 2 ) {
 		// legacy client query, don't send unneeded information
 		NET_OutOfBandPrint( NS_SERVER, from, "challengeResponse %i", challenge );
@@ -164,25 +164,25 @@ static qboolean SV_IsBanned( const netadr_t *from, qboolean isexception )
 {
 	int index;
 	serverBan_t *curban;
-	
+
 	if(!isexception)
 	{
 		// If this is a query for a ban, first check whether the client is excepted
 		if(SV_IsBanned(from, qtrue))
 			return qfalse;
 	}
-	
+
 	for(index = 0; index < serverBansCount; index++)
 	{
 		curban = &serverBans[index];
-		
+
 		if(curban->isexception == isexception)
 		{
 			if(NET_CompareBaseAdrMask(&curban->ip, from, curban->subnet))
 				return qtrue;
 		}
 	}
-	
+
 	return qfalse;
 }
 #endif
@@ -249,9 +249,9 @@ static qboolean SV_LoadIP4DB( const char *filename )
 	uint32_t last_ip;
 	void *buf;
 	int len, i;
-	
+
 	len = FS_SV_FOpenFileRead( filename, &fh );
-	
+
 	if ( len <= 0 )
 	{
 		if ( fh != FS_INVALID_HANDLE )
@@ -274,7 +274,7 @@ static qboolean SV_LoadIP4DB( const char *filename )
 	FS_Read( buf, len, fh );
 	FS_FCloseFile( fh );
 
-	// check intergity of loaded databse
+	// check integrity of loaded databse
 	last_ip = 0;
 	num_tlds = len / 10;
 
@@ -301,7 +301,7 @@ static qboolean SV_LoadIP4DB( const char *filename )
 	}
 
 	if ( i != num_tlds ) {
-			Com_Printf( S_COLOR_YELLOW "invalid ip4db entry #%i: range=[%08x..%08x], tld=%c%c\n", 
+			Com_Printf( S_COLOR_YELLOW "invalid ip4db entry #%i: range=[%08x..%08x], tld=%c%c\n",
 				i, ipdb_range[i].from, ipdb_range[i].to, ipdb_tld[i].tld[0], ipdb_tld[i].tld[1] );
 			SV_FreeIP4DB();
 			return qtrue; // to not try to load it again
@@ -864,6 +864,81 @@ void SV_DropClient( client_t *drop, const char *reason ) {
 	}
 }
 
+#ifdef USE_AUTH
+/*
+=====================
+SV_Auth_DropClient
+
+Called when the player is totally leaving the server, either willingly
+or unwillingly.  This is NOT called if the entire server is quiting
+or crashing -- SV_FinalMessage() will handle that
+=====================
+*/
+void SV_Auth_DropClient(client_t *drop, const char *reason, const char *message) {
+
+	int		i;
+	challenge_t	*challenge;
+	const qboolean isBot = drop->netchan.remoteAddress.type == NA_BOT;
+
+	if (drop->state == CS_ZOMBIE) {
+		return;		// already dropped
+	}
+
+	if (!isBot) {
+		// see if we already have a challenge for this ip
+		challenge = &svs.challenges[0];
+		for (i = 0 ; i < MAX_CHALLENGES ; i++, challenge++) {
+			if (NET_CompareAdr((const netadr_t *) &drop->netchan.remoteAddress, (const netadr_t *) &challenge->adr)) {
+				Com_Memset(challenge, 0, sizeof(*challenge));
+				break;
+			}
+		}
+	}
+
+	// Free all allocated data on the client structure
+	SV_FreeClient(drop);
+
+	// tell everyone why they got dropped (if we must)
+	if (reason != NULL && strlen(reason) > 0)
+		SV_SendServerCommand( NULL, "print \"%s" S_COLOR_WHITE " %s\n\"", drop->name, reason );
+
+	// call the prog function for removing a client
+	// this will remove the body, among other things
+	VM_Call( gvm, 1, GAME_CLIENT_DISCONNECT, drop - svs.clients );
+
+	// add the disconnect command
+	SV_SendServerCommand(drop, "disconnect \"%s\"", message);
+
+	if (isBot) {
+		SV_BotFreeClient((int) (drop - svs.clients));
+	}
+
+	// nuke user info
+	SV_SetUserinfo((int) (drop - svs.clients), "" );
+
+	if (isBot) {
+		// bots shouldn't go zombie, as there's no real net connection.
+		drop->state = CS_FREE;
+	} else {
+		Com_DPrintf( "Going to CS_ZOMBIE for %s\n", drop->name );
+		drop->state = CS_ZOMBIE;		// become free in a few seconds
+	}
+
+	// if this was the last client on the server, send a heartbeat
+	// to the master so it is known the server is empty
+	// send a heartbeat now so the master will get up to date info
+	// if there is already a slot for this ip, reuse it
+	for (i = 0; i < sv_maxclients->integer; i++) {
+		if (svs.clients[i].state >= CS_CONNECTED) {
+			break;
+		}
+	}
+	if (i == sv_maxclients->integer) {
+		SV_Heartbeat_f();
+	}
+
+}
+#endif
 
 /*
 ================
@@ -938,7 +1013,7 @@ int SV_RemainingGameState( void )
 
 	// reserve some space for potential userinfo expansion
 	len += 512;
-	
+
 	return MAX_MSGLEN - len;
 }
 
@@ -1213,13 +1288,14 @@ static int SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 	if (!*cl->downloadName)
 		return 0;	// Nothing being downloaded
 
-	if ( cl->download == FS_INVALID_HANDLE ) {
-		qboolean idPack = qfalse;
-		qboolean missionPack = qfalse;
+	if(!cl->download)
+	{
+		qboolean gamePak = qfalse;
+	
  		// Chop off filename extension.
 		Q_strncpyz( pakbuf, cl->downloadName, sizeof( pakbuf ) );
 		pakptr = strrchr( pakbuf, '.' );
-		
+
 		if(pakptr)
 		{
 			*pakptr = '\0';
@@ -1240,8 +1316,7 @@ static int SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 
 						// now that we know the file is referenced,
 						// check whether it's legal to download it.
-						missionPack = FS_idPak(pakbuf, BASETA, NUM_TA_PAKS);
-						idPack = missionPack || FS_idPak(pakbuf, BASEGAME, NUM_ID_PAKS);
+						gamePak = FS_GamePak(pakbuf);
 
 						break;
 					}
@@ -1254,7 +1329,7 @@ static int SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 		// We open the file here
 		if ( !(sv_allowDownload->integer & DLF_ENABLE) ||
 			(sv_allowDownload->integer & DLF_NO_UDP) ||
-			idPack || unreferenced ||
+			gamePak || unreferenced ||
 			( cl->downloadSize = FS_SV_FOpenFileRead( cl->downloadName, &cl->download ) ) < 0 ) {
 			// cannot auto-download file
 			if(unreferenced)
@@ -1262,15 +1337,10 @@ static int SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 				Com_Printf("clientDownload: %d : \"%s\" is not referenced and cannot be downloaded.\n", (int) (cl - svs.clients), cl->downloadName);
 				Com_sprintf(errorMessage, sizeof(errorMessage), "File \"%s\" is not referenced and cannot be downloaded.", cl->downloadName);
 			}
-			else if (idPack) {
-				Com_Printf("clientDownload: %d : \"%s\" cannot download id pk3 files\n", (int) (cl - svs.clients), cl->downloadName);
-				if (missionPack) {
-					Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload Team Arena file \"%s\"\n"
-									"The Team Arena mission pack can be found in your local game store.", cl->downloadName);
-				}
-				else {
-					Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload id pk3 file \"%s\"", cl->downloadName);
-				}
+
+			else if (gamePak) {
+				Com_Printf("clientDownload: %d : \"%s\" cannot download game pk3 files\n", (int) (cl - svs.clients), cl->downloadName);
+				Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload game pk3 file \"%s\"", cl->downloadName);
 			}
 			else if ( !(sv_allowDownload->integer & DLF_ENABLE) ||
 				(sv_allowDownload->integer & DLF_NO_UDP) ) {
@@ -1298,17 +1368,17 @@ static int SV_WriteDownloadToClient( client_t *cl, msg_t *msg )
 			MSG_WriteString( msg, errorMessage );
 
 			*cl->downloadName = '\0';
-			
+
 			if ( cl->download != FS_INVALID_HANDLE ) {
 				FS_FCloseFile( cl->download );
 				cl->download = FS_INVALID_HANDLE;
 			}
-			
+
 			return 1;
 		}
- 
+
 		Com_Printf( "clientDownload: %d : beginning \"%s\"\n", (int) (cl - svs.clients), cl->downloadName );
-		
+
 		// Init
 		cl->downloadCurrentBlock = cl->downloadClientBlock = cl->downloadXmitBlock = 0;
 		cl->downloadCount = 0;
@@ -1402,11 +1472,11 @@ int SV_SendQueuedMessages( void )
 {
 	int i, retval = -1, nextFragT;
 	client_t *cl;
-	
+
 	for( i = 0; i < sv_maxclients->integer; i++ )
 	{
 		cl = &svs.clients[i];
-		
+
 		if ( cl->state )
 		{
 			nextFragT = SV_RateMsec(cl);
@@ -1436,18 +1506,18 @@ int SV_SendDownloadMessages( void )
 	client_t *cl;
 	msg_t msg;
 	byte msgBuffer[ MAX_MSGLEN_BUF ];
-	
+
 	for( i = 0; i < sv_maxclients->integer; i++ )
 	{
 		cl = &svs.clients[i];
-		
+
 		if ( cl->state >= CS_CONNECTED && *cl->downloadName )
 		{
 			MSG_Init( &msg, msgBuffer, MAX_MSGLEN );
 			MSG_WriteLong( &msg, cl->lastClientCommand );
-			
+
 			retval = SV_WriteDownloadToClient( cl, &msg );
-				
+
 			if ( retval )
 			{
 				MSG_WriteByte( &msg, svc_EOF );
@@ -1492,7 +1562,7 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 	const char *pArg;
 	qboolean bGood = qtrue;
 
-	// if we are pure, we "expect" the client to load certain things from 
+	// if we are pure, we "expect" the client to load certain things from
 	// certain pk3 files, namely we want the client to have loaded the
 	// ui and cgame that we think should be loaded based on the pure setting
 	//
@@ -1527,7 +1597,7 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 				return;
 			}
 		}
-	
+
 		// we basically use this while loop to avoid using 'goto' :)
 		while (bGood) {
 
@@ -1692,7 +1762,7 @@ void SV_UserinfoChanged( client_t *cl, qboolean updateUserinfo, qboolean runFilt
 		i = sv_fps->integer;
 
 	i = 1000 / i; // from FPS to milliseconds
-	
+
 	if ( i != cl->snapshotMsec )
 	{
 		// Reset last sent snapshot so we avoid desync between server frame time and snapshot send time
@@ -1737,7 +1807,7 @@ void SV_UserinfoChanged( client_t *cl, qboolean updateUserinfo, qboolean runFilt
 	if ( runFilter )
 	{
 		val = SV_RunFilters( cl->userinfo, &cl->netchan.remoteAddress );
-		if ( *val != '\0' ) 
+		if ( *val != '\0' )
 		{
 			SV_DropClient( cl, val );
 		}
@@ -1835,7 +1905,7 @@ void SV_PrintLocations_f( client_t *client ) {
 
 		s = Q_stradd( s, line );
 	}
-	
+
 	if ( buf[0] )
 	{
 		if ( client )
@@ -1890,7 +1960,7 @@ Also called by bot code
 qboolean SV_ExecuteClientCommand( client_t *cl, const char *s ) {
 	const ucmd_t *ucmd;
 	qboolean bFloodProtect;
-	
+
 	Cmd_TokenizeString( s );
 
 	// malicious users may try using too many string commands
@@ -1964,7 +2034,7 @@ static qboolean SV_ClientCommand( client_t *cl, msg_t *msg ) {
 
 	// drop the connection if we have somehow lost commands
 	if ( seq > cl->lastClientCommand + 1 ) {
-		Com_Printf( "Client %s lost %i clientCommands\n", cl->name, 
+		Com_Printf( "Client %s lost %i clientCommands\n", cl->name,
 			seq - cl->lastClientCommand + 1 );
 		SV_DropClient( cl, "Lost reliable commands" );
 		return qfalse;
@@ -2006,7 +2076,7 @@ void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
 ==================
 SV_UserMove
 
-The message usually contains all the movement commands 
+The message usually contains all the movement commands
 that were in the last three packets, so that the information
 in dropped packets can be recovered.
 
@@ -2070,9 +2140,9 @@ static void SV_UserMove( client_t *cl, msg_t *msg, qboolean delta ) {
 			return;
 		}
 		SV_ClientEnterWorld( cl, &cmds[0] );
-		// the moves can be processed normaly
+		// the moves can be processed normally
 	}
-	
+
 	// a bad cp command was sent, drop the client
 	if ( sv_pure->integer != 0 && !cl->pureAuthentic ) {
 		SV_DropClient( cl, "Cannot validate pure client!" );
@@ -2158,7 +2228,7 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 
 	// if this is a usercmd from a previous gamestate,
 	// ignore it or retransmit the current gamestate
-	// 
+	//
 	// if the client was downloading, let it stay at whatever serverId and
 	// gamestate it was at.  This allows it to keep downloading even when
 	// the gamestate changes.  After the download is finished, we'll

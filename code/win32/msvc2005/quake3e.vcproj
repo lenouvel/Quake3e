@@ -516,15 +516,15 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\client\snd_codec_ogg.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\client\snd_codec_wav.c"
 				>
 			</File>
 			<File
 				RelativePath="..\..\client\snd_dma.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\client\snd_dmaHD.c"
 				>
 			</File>
 			<File

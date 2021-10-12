@@ -24,10 +24,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define _QCOMMON_H_
 
 #include <sys/types.h>
-#include "../qcommon/cm_public.h"
+#include "cm_public.h"
 
-//Ignore __attribute__ on non-gcc platforms
-#ifndef __GNUC__
+//Ignore __attribute__ on non-gcc/clang platforms
+#if !defined(__GNUC__) && !defined(__clang__)
 #ifndef __attribute__
 #define __attribute__(x)
 #endif
@@ -186,7 +186,7 @@ typedef struct {
 		byte	_6[16];
 #endif
 	} ipv;
-	unsigned short	port;
+	uint16_t	port;
 #ifdef USE_IPV6
 	unsigned long	scope_id;	// Needed for IPv6 link-local addresses
 #endif
@@ -283,6 +283,8 @@ PROTOCOL
 
 #define	PROTOCOL_VERSION		68
 // new protocol with UDP spoofing protection:
+#define URT_PROTOCOL_VERSION	70
+
 #define	NEW_PROTOCOL_VERSION	71
 // 1.31 - 67
 
@@ -294,13 +296,19 @@ extern const int demo_protocols[];
 #define	UPDATE_SERVER_NAME	"update.quake3arena.com"
 // override on command line, config files etc.
 #ifndef MASTER_SERVER_NAME
-#define MASTER_SERVER_NAME	"master.quake3arena.com"
+#define MASTER_SERVER_NAME	"master.urbanterror.info"
+#endif
+#ifndef MASTER2_SERVER_NAME
+#define MASTER2_SERVER_NAME	"master2.urbanterror.info"
+#endif
+#ifndef MASTER3_SERVER_NAME
+#define MASTER3_SERVER_NAME	"master.ioquake3.org"
 #endif
 #ifndef AUTHORIZE_SERVER_NAME
-#define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
+#define	AUTHORIZE_SERVER_NAME	"localhost"
 #endif
 
-#define	PORT_MASTER			27950
+#define	PORT_MASTER			27900
 #define	PORT_UPDATE			27951
 #ifndef PORT_AUTHORIZE
 #define	PORT_AUTHORIZE		27952
@@ -544,10 +552,10 @@ cvar_t *Cvar_Get( const char *var_name, const char *value, int flags );
 // that allows variables to be unarchived without needing bitflags
 // if value is "", the value will not override a previously set value.
 
-void	Cvar_Register( vmCvar_t *vmCvar, const char *varName, const char *defaultValue, int flags );
+void	Cvar_Register( vmCvar_t *vmCvar, const char *varName, const char *defaultValue, int flags, int privateFlag );
 // basically a slightly modified Cvar_Get for the interpreted modules
 
-void	Cvar_Update( vmCvar_t *vmCvar );
+void	Cvar_Update( vmCvar_t *vmCvar, int privateFlag );
 // updates an interpreted modules' version of a cvar
 
 void 	Cvar_Set( const char *var_name, const char *value );
@@ -578,7 +586,7 @@ void	Cvar_VariableStringBuffer( const char *var_name, char *buffer, int bufsize 
 void	Cvar_VariableStringBufferSafe( const char *var_name, char *buffer, int bufsize, int flag );
 // returns an empty string if not defined
 
-int		Cvar_Flags(const char *var_name);
+unsigned Cvar_Flags( const char *var_name );
 // returns CVAR_NONEXISTENT if cvar doesn't exist or the flags of that particular CVAR.
 
 void	Cvar_CommandCompletion( void(*callback)(const char *s) );
@@ -673,7 +681,11 @@ typedef enum {
 #endif
 
 typedef	time_t fileTime_t;
+#if defined  (_MSC_VER) && defined (__clang__)
+typedef	_off_t  fileOffset_t;
+#else
 typedef	off_t  fileOffset_t;
+#endif
 
 qboolean FS_Initialized( void );
 
@@ -791,7 +803,9 @@ const char *FS_LoadedPakChecksums( qboolean *overflowed );
 
 qboolean FS_ExcludeReference( void );
 const char *FS_ReferencedPakNames( void );
+const char *FS_ReferencedPakNamesServer( const char *mapname );
 const char *FS_ReferencedPakChecksums( void );
+const char *FS_ReferencedPakChecksumsServer( const char *mapname );
 const char *FS_ReferencedPakPureChecksums( int maxlen );
 // Returns a space separated string containing the checksums of all loaded 
 // AND referenced pk3 files. Servers with sv_pure set will get this string 
@@ -810,7 +824,7 @@ void FS_PureServerSetLoadedPaks( const char *pakSums, const char *pakNames );
 qboolean FS_IsPureChecksum( int sum );
 
 qboolean FS_InvalidGameDir( const char *gamedir );
-qboolean FS_idPak( const char *pak, const char *base, int numPaks );
+qboolean FS_GamePak(char *pak);
 qboolean FS_ComparePaks( char *neededpaks, int len, qboolean dlstring );
 
 void FS_Rename( const char *from, const char *to );
@@ -992,6 +1006,7 @@ extern	cvar_t	*com_blood;
 extern	cvar_t	*com_buildScript;		// for building release pak files
 extern	cvar_t	*com_journal;
 extern	cvar_t	*com_cameraMode;
+extern	cvar_t	*com_protocol;
 
 // both client and server must agree to pause
 extern	cvar_t	*sv_paused;
@@ -1258,7 +1273,7 @@ void	Sys_SetAffinityMask( int mask );
 int		Sys_Milliseconds( void );
 int64_t	Sys_Microseconds( void );
 
-void	Sys_SnapVector( float *v );
+void	Sys_SnapVector( float *vector );
 
 qboolean Sys_RandomBytes( byte *string, int len );
 

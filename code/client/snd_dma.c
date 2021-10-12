@@ -31,15 +31,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "snd_local.h"
 #include "snd_codec.h"
+#include "snd_dmahd.h"
 #include "client.h"
 
 static void S_Update_( int msec );
-static void S_UpdateBackgroundTrack( void );
+void S_UpdateBackgroundTrack( void );
 static void S_Base_StopAllSounds( void );
 static void S_Base_StopBackgroundTrack( void );
+static void S_memoryLoad( sfx_t *sfx );
 
-snd_stream_t	*s_backgroundStream = NULL;
-static char		s_backgroundLoop[MAX_QPATH];
+static snd_stream_t *s_backgroundStream = NULL;
+static char s_backgroundLoop[MAX_QPATH];
 //static char		s_backgroundMusic[MAX_QPATH]; //TTimo: unused
 
 static byte		buffer2[ 0x10000 ]; // for muted painting
@@ -62,37 +64,37 @@ channel_t   s_channels[MAX_CHANNELS];
 channel_t   loop_channels[MAX_CHANNELS];
 int			numLoopChannels;
 
-static		qboolean	s_soundStarted;
-static		qboolean	s_soundMuted;
+int	s_soundStarted;
+qboolean	s_soundMuted;
 
 dma_t		dma;
 
-static int			listener_number;
-static vec3_t		listener_origin;
-static vec3_t		listener_axis[3];
+int			listener_number;
+vec3_t		listener_origin;
+vec3_t		listener_axis[3];
 
 int			s_soundtime;		// sample PAIRS
 int   		s_paintedtime; 		// sample PAIRS
 
 // MAX_SFX may be larger than MAX_SOUNDS because
 // of custom player sounds
-#define		MAX_SFX			4096
-sfx_t		s_knownSfx[MAX_SFX];
-int			s_numSfx = 0;
+#define MAX_SFX			4096
+sfx_t s_knownSfx[MAX_SFX];
+int s_numSfx = 0;
 
-#define		LOOP_HASH		128
+#define LOOP_HASH		128
 static sfx_t *sfxHash[LOOP_HASH];
 
 cvar_t		*s_testsound;
 cvar_t		*s_khz;
 cvar_t		*s_show;
-static cvar_t *s_mixahead;
+cvar_t *s_mixahead;
 static cvar_t *s_mixOffset;
 #if defined(__linux__) && !defined(USE_SDL)
 cvar_t		*s_device;
 #endif
 
-static loopSound_t	loopSounds[MAX_GENTITIES];
+loopSound_t	loopSounds[MAX_GENTITIES];
 static	channel_t	*freelist = NULL;
 
 int			s_rawend;
@@ -161,14 +163,14 @@ static void S_ChannelFree( channel_t *v ) {
 }
 
 
-static channel_t* S_ChannelMalloc( void ) {
+static channel_t* S_ChannelMalloc( int allocTime ) {
 	channel_t *v;
 	if (freelist == NULL) {
 		return NULL;
 	}
 	v = freelist;
 	freelist = *(channel_t **)freelist;
-	v->allocTime = Com_Milliseconds();
+	v->allocTime = allocTime;
 	return v;
 }
 
@@ -366,11 +368,11 @@ static void S_Base_BeginRegistration( void ) {
 	Com_Memset( s_knownSfx, 0, sizeof( s_knownSfx ) );
 	Com_Memset( sfxHash, 0, sizeof( sfxHash ) );
 
-	S_Base_RegisterSound( "sound/feedback/hit.wav", qfalse ); // changed to a sound in baseq3
+	S_Base_RegisterSound( "sound/null.wav", qfalse ); // changed to a sound in baseq3
 }
 
 
-void S_memoryLoad( sfx_t *sfx ) {
+static void S_memoryLoad( sfx_t *sfx ) {
 
 	// load the sound file
 	if ( !S_LoadSound ( sfx ) ) {
@@ -459,7 +461,7 @@ Entchannel 0 will never override a playing sound
 static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchannel, sfxHandle_t sfxHandle ) {
 	channel_t	*ch;
 	sfx_t		*sfx;
-	int i, oldest, chosen, time;
+	int i, oldest, chosen, startTime;
 	int	inplay, allowed;
 
 	if ( !s_soundStarted || s_soundMuted ) {
@@ -477,7 +479,7 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 
 	sfx = &s_knownSfx[ sfxHandle ];
 
-	if (sfx->inMemory == qfalse) {
+	if ( sfx->inMemory == qfalse ) {
 		S_memoryLoad(sfx);
 	}
 
@@ -485,7 +487,7 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 		Com_Printf( "%i : %s\n", s_paintedtime, sfx->soundName );
 	}
 
-	time = Com_Milliseconds();
+	startTime = s_soundtime; // Com_Milliseconds();
 
 	// borrowed from cnq3
 	// a UNIQUE entity starting the same sound twice in a frame is either a bug,
@@ -499,11 +501,11 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 		for ( i = 0; i < MAX_CHANNELS; i++, ch++ ) {
 			if ( ch->entnum != entityNum )
 				continue;
-			if ( ch->allocTime != time )
+			if ( ch->allocTime != startTime )
 				continue;
 			if ( ch->thesfx != sfx )
 				continue;
-			sfx->lastTimeUsed = time;
+			sfx->lastTimeUsed = startTime;
 			//Com_Printf( S_COLOR_YELLOW "double sound start: %d %s\n", entityNum, sfx->soundName);
 			return;
 		}
@@ -520,12 +522,10 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 
 	ch = s_channels;
 	inplay = 0;
-	for ( i = 0; i < MAX_CHANNELS ; i++, ch++ ) {		
+	for ( i = 0; i < MAX_CHANNELS; i++, ch++ ) {
 		if ( ch->entnum == entityNum && ch->thesfx == sfx ) {
-			if ( time - ch->allocTime < 20 ) {
-//				if (Cvar_VariableIntegerValue( "cg_showmiss" )) {
-//					Com_Printf( "double sound start: %d %s\n", entityNum, sfx->soundName);
-//				}
+			if ( startTime - ch->allocTime < 20 ) {
+				Com_DPrintf(S_COLOR_YELLOW "S_StartSound: Double start (%d ms < 20 ms) for %s\n", startTime - ch->allocTime, sfx->soundName);
 				return;
 			}
 			inplay++;
@@ -534,12 +534,13 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 
 	// too much duplicated sounds, ignore
 	if ( inplay > allowed ) {
+		Com_DPrintf(S_COLOR_YELLOW "S_StartSound: %s hit the concurrent channels limit (%d)\n", sfx->soundName, allowed);
 		return;
 	}
 
-	sfx->lastTimeUsed = time;
+	sfx->lastTimeUsed = startTime;
 
-	ch = S_ChannelMalloc();	// entityNum, entchannel);
+	ch = S_ChannelMalloc( startTime ); // entityNum, entchannel);
 	if (!ch) {
 		ch = s_channels;
 
@@ -570,17 +571,18 @@ static void S_Base_StartSound( const vec3_t origin, int entityNum, int entchanne
 					}
 				}
 				if (chosen == -1) {
-					Com_Printf( "dropping sound %s\n", sfx->soundName );
+					Com_DPrintf(S_COLOR_YELLOW "S_StartSound: No more channels free for %s\n", sfx->soundName);
 					return;
 				}
 			}
 		}
 		ch = &s_channels[chosen];
 		ch->allocTime = sfx->lastTimeUsed;
+		Com_DPrintf(S_COLOR_YELLOW "S_StartSound: No more channels free for %s, dropping earliest sound: %s\n", sfx->soundName, ch->thesfx->soundName);
 	}
 
-	if (origin) {
-		VectorCopy (origin, ch->origin);
+	if ( origin ) {
+		VectorCopy( origin, ch->origin );
 		ch->fixed_origin = qtrue;
 	} else {
 		ch->fixed_origin = qfalse;
@@ -812,8 +814,8 @@ All sounds are on the same cycle, so any duplicates can just
 sum up the channel multipliers.
 ==================
 */
-void S_AddLoopSounds (void) {
-	int			i, j, time;
+void S_AddLoopSounds( void ) {
+	int			i, j, startTime;
 	int			left_total, right_total, left, right;
 	channel_t	*ch;
 	loopSound_t	*loop, *loop2;
@@ -822,7 +824,7 @@ void S_AddLoopSounds (void) {
 
 	numLoopChannels = 0;
 
-	time = Com_Milliseconds();
+	startTime = s_soundtime; // Com_Milliseconds();
 
 	loopFrame++;
 	for ( i = 0 ; i < MAX_GENTITIES ; i++) {
@@ -837,7 +839,7 @@ void S_AddLoopSounds (void) {
 			S_SpatializeOrigin( loop->origin, SPHERE_VOL,  &left_total, &right_total);	// sphere
 		}
 
-		loop->sfx->lastTimeUsed = time;
+		loop->sfx->lastTimeUsed = startTime;
 
 		for (j=(i+1); j< MAX_GENTITIES ; j++) {
 			loop2 = &loopSounds[j];
@@ -852,7 +854,7 @@ void S_AddLoopSounds (void) {
 				S_SpatializeOrigin( loop2->origin, SPHERE_VOL,  &left, &right);		// sphere
 			}
 
-			loop2->sfx->lastTimeUsed = time;
+			loop2->sfx->lastTimeUsed = startTime;
 			left_total += left;
 			right_total += right;
 		}
@@ -1066,7 +1068,7 @@ S_ScanChannelStarts
 Returns qtrue if any new sounds were started since the last mix
 ========================
 */
-static qboolean S_ScanChannelStarts( void ) {
+qboolean S_ScanChannelStarts( void ) {
 	channel_t		*ch;
 	int				i;
 	qboolean		newSamples;
@@ -1135,7 +1137,7 @@ static void S_Base_Update( int msec ) {
 }
 
 
-static void S_GetSoundtime( void )
+void S_GetSoundtime( void )
 {
 	int		samplepos;
 	static	int		buffers;
@@ -1147,11 +1149,17 @@ static void S_GetSoundtime( void )
 	if ( CL_VideoRecording() )
 	{
 		fps = MIN( cl_aviFrameRate->value, 1000.0f );
-		frameDuration = MAX( dma.speed / fps, 1.0f ) + clc.aviSoundFrameRemainder;
+		frameDuration = MAX( (float) dma.speed / fps, 1.0f ) + clc.aviSoundFrameRemainder;
 
 		msec = (int)frameDuration;
 		s_soundtime += msec;
 		clc.aviSoundFrameRemainder = frameDuration - msec;
+
+		// use same offset as in game
+		s_paintedtime = s_soundtime + s_mixOffset->value * dma.speed;
+
+		// render exactly one frame of audio data
+		clc.aviFrameEndTime = s_paintedtime + MAX( (float) dma.speed / fps, 1.0f ) + clc.aviSoundFrameRemainder;
 		return;
 	}
 
@@ -1227,8 +1235,8 @@ static void S_Update_( int msec ) {
 		& ~(dma.submission_chunk-1);
 
 	// never mix more than the complete buffer
-	if ( endtime - s_soundtime > dma.fullsamples ) {
-		endtime = s_soundtime + dma.fullsamples;
+	if ( endtime - s_paintedtime > dma.fullsamples ) {
+		endtime = s_paintedtime + dma.fullsamples;
 	}
 
 	// add raw data from streamed samples
@@ -1324,7 +1332,7 @@ static void S_Base_StartBackgroundTrack( const char *intro, const char *loop ){
 S_UpdateBackgroundTrack
 ======================
 */
-static void S_UpdateBackgroundTrack( void ) {
+void S_UpdateBackgroundTrack( void ) {
 	int		bufferSamples;
 	int		fileSamples;
 	byte	raw[30000];		// just enough to fit in a mac stack frame
@@ -1405,7 +1413,10 @@ void S_FreeOldestSound( void ) {
 	sfx_t	*sfx;
 	sndBuffer	*buffer, *nbuffer;
 
-	oldest = Com_Milliseconds();
+	// all sounds may be loaded with (s_soundtime + 1) at this moment
+	// so we need to trigger match condition at least once
+	oldest = s_soundtime + 2; // Com_Milliseconds();
+
 	used = 0;
 
 	for ( i = 1 ; i < s_numSfx ; i++ ) {
@@ -1457,6 +1468,8 @@ static void S_Base_Shutdown( void ) {
 	dma_buffer2 = NULL;
 
 	Cmd_RemoveCommand( "s_info" );
+
+	cls.soundRegistered = qfalse;
 }
 
 
@@ -1550,6 +1563,11 @@ qboolean S_Base_Init( soundInterface_t *si ) {
 	si->ClearSoundBuffer = S_Base_ClearSoundBuffer;
 	si->SoundInfo = S_Base_SoundInfo;
 	si->SoundList = S_Base_SoundList;
+
+#ifndef NO_DMAHD
+	if (dmaHD_Enabled())
+		return dmaHD_Init(si);
+#endif
 
 	return qtrue;
 }

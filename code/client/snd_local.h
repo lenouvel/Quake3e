@@ -19,7 +19,7 @@ along with Quake III Arena source code; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
-// snd_local.h -- private sound definations
+// snd_local.h -- private sound definitions
 
 
 #include "../qcommon/q_shared.h"
@@ -38,14 +38,14 @@ typedef struct {
 } portable_samplepair_t;
 
 typedef struct adpcm_state {
-    short	sample;		/* Previous output value */
-    char	index;		/* Index into stepsize table */
+	short	sample;		/* Previous output value */
+	char	index;		/* Index into stepsize table */
 } adpcm_state_t;
 
 typedef	struct sndBuffer_s {
 	short					sndChunk[SND_CHUNK_SIZE];
 	struct sndBuffer_s		*next;
-    int						size;
+	int						size;
 	adpcm_state_t			adpcm;
 } sndBuffer;
 
@@ -54,12 +54,13 @@ typedef struct sfx_s {
 	qboolean		defaultSound;			// couldn't be loaded, so use buzz
 	qboolean		inMemory;				// not in Memory
 	qboolean		soundCompressed;		// not in Memory
-	int				soundCompressionMethod;	
+	int				soundCompressionMethod;
 	int 			soundLength;
 	int				soundChannels;
 	char 			soundName[MAX_QPATH];
 	int				lastTimeUsed;
 	struct sfx_s	*next;
+	qboolean		weaponsound;
 } sfx_t;
 
 typedef struct {
@@ -95,12 +96,20 @@ typedef struct loopSound_s {
 
 typedef struct
 {
+	int		vol; // Must be first member due to union (see channel_t)
+	int		offset;
+	int		bassvol;
+	int		bassoffset;
+	int		reverbvol;
+	int		reverboffset;
+} ch_side_t;
+
+typedef struct
+{
 	int			allocTime;
 	int			startSample;	// START_SAMPLE_IMMEDIATE = set immediately on next mix
 	int			entnum;			// to allow overriding a specific sound
 	int			entchannel;		// to allow overriding a specific sound
-	int			leftvol;		// 0-255 volume after spatialization
-	int			rightvol;		// 0-255 volume after spatialization
 	int			master_vol;		// 0-255 volume before spatialization
 	float		dopplerScale;
 	float		oldDopplerScale;
@@ -108,6 +117,17 @@ typedef struct
 	qboolean	fixed_origin;	// use origin instead of fetching entnum's origin
 	sfx_t		*thesfx;		// sfx structure
 	qboolean	doppler;
+	union
+	{
+		int		leftvol; // 0-255 volume after spatialization
+		ch_side_t 	l;
+	};
+	union
+	{
+		int		rightvol; // 0-255 volume after spatialization
+		ch_side_t	r;
+	};
+	vec3_t 		sodrot;
 } channel_t;
 
 
@@ -159,6 +179,7 @@ typedef struct
 
 // initializes cycling through a DMA buffer and returns information on it
 qboolean SNDDMA_Init(void);
+qboolean SNDDMAHD_DevList(void);
 
 // gets the current DMA position
 int		SNDDMA_GetDMAPos(void);
@@ -178,6 +199,7 @@ extern	channel_t   s_channels[MAX_CHANNELS];
 extern	channel_t   loop_channels[MAX_CHANNELS];
 extern	int		numLoopChannels;
 
+extern	int		s_soundtime;
 extern	int		s_paintedtime;
 extern	int		s_rawend;
 extern	vec3_t	listener_forward;
@@ -204,8 +226,6 @@ void		SND_setup( void );
 void		SND_shutdown( void );
 
 void S_PaintChannels(int endtime);
-
-void S_memoryLoad(sfx_t *sfx);
 
 // spatializes a channel
 void S_Spatialize(channel_t *ch);
