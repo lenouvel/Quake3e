@@ -733,9 +733,13 @@ void SV_Init( void )
 
 	// server vars
 	sv_rconPassword = Cvar_Get ("rconPassword", "", CVAR_TEMP );
+	Cvar_SetDescription(sv_rconPassword, "Set password to send rcon commands to the server\nDefault: empty");
 	sv_privatePassword = Cvar_Get ("sv_privatePassword", "", CVAR_TEMP );
-	sv_fps = Cvar_Get ("sv_fps", "40", CVAR_TEMP );
-	Cvar_CheckRange( sv_fps, "10", "125", CV_INTEGER );
+	Cvar_SetDescription(sv_privatePassword, "Set password for private clients to login\nDefault: empty");
+
+	sv_fps = Cvar_Get ("sv_fps", "20", CVAR_TEMP | CVAR_PROTECTED );
+	Cvar_CheckRange( sv_fps, "20", "125", CV_INTEGER );
+	Cvar_SetDescription(sv_fps, "Set the max frames per second the server sends the client\nDefault: 20");
 	sv_timeout = Cvar_Get( "sv_timeout", "200", CVAR_TEMP );
 	Cvar_CheckRange( sv_timeout, "4", NULL, CV_INTEGER );
 	Cvar_SetDescription( sv_timeout, "Seconds without any message before automatic client disconnect" );
