@@ -4663,7 +4663,7 @@ static void FS_Startup( void ) {
 	fs_homepath = Cvar_Get( "fs_homepath", homePath, CVAR_INIT | CVAR_PROTECTED | CVAR_PRIVATE );
 	Cvar_SetDescription( fs_homepath, "Directory to store user configuration and downloaded files." );
 
-	fs_gamedirvar = Cvar_Get( "fs_game", "", CVAR_INIT | CVAR_SYSTEMINFO );
+	fs_gamedirvar = Cvar_Get( "fs_game", BASEGAME, CVAR_INIT | CVAR_SYSTEMINFO );
 	Cvar_CheckRange( fs_gamedirvar, NULL, NULL, CV_FSPATH );
 
 	if ( !Q_stricmp( fs_basegame->string, fs_gamedirvar->string ) ) {
