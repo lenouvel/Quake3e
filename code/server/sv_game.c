@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "server.h"
 
 #include "../botlib/botlib.h"
+#include "sv_bot_bridge.h"
 
 botlib_export_t	*botlib_export;
 
@@ -569,6 +570,8 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_LOAD_MAP:
 		return botlib_export->BotLibLoadMap( VMA(1) );
 	case BOTLIB_UPDATENTITY:
+		// Feed the bridge with entity data (bridge reads playerState_t itself)
+		SV_BridgeUpdateEntity( args[1], VMA(2) );
 		return botlib_export->BotLibUpdateEntity( args[1], VMA(2) );
 	case BOTLIB_TEST:
 		return botlib_export->Test( args[1], VMA(2), VMA(3), VMA(4) );

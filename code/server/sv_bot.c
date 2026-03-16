@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "server.h"
 #include "../botlib/botlib.h"
+#include "sv_bot_bridge.h"
 
 typedef struct bot_debugpoly_s
 {
@@ -442,7 +443,14 @@ void SV_BotFrame( int time ) {
 	if (!bot_enable) return;
 	//NOTE: maybe the game is already shutdown
 	if (!gvm) return;
+
+	// Apply Python AI bot commands before the QVM thinks
+	SV_BridgeApplyBotCommands();
+
 	VM_Call( gvm, 1, BOTAI_START_FRAME, time );
+
+	// Stream game state to Python after the QVM has processed
+	SV_BridgeFrame( time );
 }
 
 /*
@@ -472,6 +480,9 @@ it is changing to a different game directory.
 ===============
 */
 int SV_BotLibShutdown( void ) {
+
+	// Shutdown Python AI bridge
+	SV_BridgeShutdown();
 
 	if ( !botlib_export ) {
 		return -1;
@@ -566,6 +577,9 @@ void SV_BotInitBotLib(void) {
 
 	botlib_export = (botlib_export_t *)GetBotLibAPI( BOTLIB_API_VERSION, &botlib_import );
 	assert(botlib_export); 	// somehow we end up with a zero import.
+
+	// Initialize Python AI bridge
+	SV_BridgeInit();
 }
 
 

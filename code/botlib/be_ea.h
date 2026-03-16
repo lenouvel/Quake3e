@@ -30,6 +30,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  *****************************************************************************/
 
+// Python AI Bridge: set to 1 to enable EA functions, 0 to make them no-ops
+extern int ea_bridge_active;
+
 //ClientCommand elementary actions
 void EA_Say(int client, const char *str);
 void EA_SayTeam(int client, const char *str);
