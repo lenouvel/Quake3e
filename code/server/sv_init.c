@@ -21,6 +21,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "server.h"
+#include "../botlib/botlib.h"
+#include "sv_bot_bridge.h"
 
 
 /*
@@ -705,7 +707,7 @@ void SV_Init( void )
 	sv_maxclients = Cvar_Get ("sv_maxclients", "8", CVAR_SERVERINFO | CVAR_LATCH);
 	Cvar_CheckRange( sv_maxclients, "1", XSTRING(MAX_CLIENTS), CV_INTEGER );
 
-	sv_maxclientsPerIP = Cvar_Get( "sv_maxclientsPerIP", "3", CVAR_ARCHIVE );
+	sv_maxclientsPerIP = Cvar_Get( "sv_maxclientsPerIP", "64", CVAR_ARCHIVE );
 	Cvar_CheckRange( sv_maxclientsPerIP, "1", NULL, CV_INTEGER );
 	Cvar_SetDescription( sv_maxclientsPerIP, "Limits number of simultaneous connections from the same IP address." );
 
@@ -761,7 +763,7 @@ void SV_Init( void )
 	for ( index = 0; index < MAX_MASTER_SERVERS; index++ )
 		sv_master[ index ] = Cvar_Get( va( "sv_master%d", index + 1 ), "", CVAR_ARCHIVE_ND );
 
-	sv_reconnectlimit = Cvar_Get( "sv_reconnectlimit", "3", 0 );
+	sv_reconnectlimit = Cvar_Get( "sv_reconnectlimit", "0", 0 );
 	Cvar_CheckRange( sv_reconnectlimit, "0", "12", CV_INTEGER );
 
 	sv_padPackets = Cvar_Get ("sv_padPackets", "0", 0);
@@ -856,6 +858,9 @@ void SV_Shutdown( const char *finalmsg ) {
 	if ( svs.clients && !com_errorEntered ) {
 		SV_FinalMessage( finalmsg );
 	}
+
+	// Force-shutdown the Python AI bridge (listen socket + all clients)
+	SV_BridgeForceShutdown();
 
 	SV_RemoveOperatorCommands();
 	SV_MasterShutdown();

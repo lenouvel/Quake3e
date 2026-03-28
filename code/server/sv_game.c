@@ -586,7 +586,10 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 			unsigned clientNum = args[1];
 			if ( clientNum < sv_maxclients->integer )
 			{
-				SV_ClientThink( &svs.clients[ clientNum ], VMA(2) );
+				// Skip if the bridge already injected a usercmd this frame
+				if ( !bridgeBotProcessed[clientNum] ) {
+					SV_ClientThink( &svs.clients[ clientNum ], VMA(2) );
+				}
 			}
 		}
 		return 0;

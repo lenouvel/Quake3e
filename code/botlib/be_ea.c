@@ -50,6 +50,11 @@ bot_input_t *botinputs;
 // The bridge sets this to 1 before applying Python commands.
 int ea_bridge_active = 0;
 
+// Per-bot flag: when set to 1, EA_ResetInput() skips this bot so the
+// bridge-applied commands (dir, speed, viewangles, actionflags) survive
+// the QVM bot think cycle (which calls EA_ResetInput before EA_GetInput).
+int *ea_bridge_bot = NULL;
+
 // ============================================================================
 // QVM-called functions: no-ops unless bridge is active
 // Communication functions are always no-ops (no QVM chat, no Python chat yet)
@@ -150,6 +155,12 @@ void EA_ResetInput( int client ) {
 	bot_input_t *bi;
 	int jumped;
 
+	// If this bot is bridge-controlled, skip the reset so bridge commands
+	// (dir, speed, viewangles, actionflags) survive through EA_GetInput.
+	if ( ea_bridge_bot && ea_bridge_bot[client] ) {
+		return;
+	}
+
 	bi = &botinputs[client];
 
 	bi->thinktime = 0;
@@ -163,10 +174,16 @@ void EA_ResetInput( int client ) {
 int EA_Setup( void ) {
 	botinputs = (bot_input_t *) GetClearedHunkMemory(
 									botlibglobals.maxclients * sizeof(bot_input_t) );
+	ea_bridge_bot = (int *) GetClearedHunkMemory(
+									botlibglobals.maxclients * sizeof(int) );
 	return BLERR_NOERROR;
 }
 
 void EA_Shutdown( void ) {
 	FreeMemory( botinputs );
 	botinputs = NULL;
+	if ( ea_bridge_bot ) {
+		FreeMemory( ea_bridge_bot );
+		ea_bridge_bot = NULL;
+	}
 }

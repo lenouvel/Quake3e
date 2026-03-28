@@ -71,7 +71,7 @@ static void signal_handler( int sig )
 
 void InitSig( void )
 {
-	signal( SIGINT, SIG_IGN );
+	signal( SIGINT, signal_handler );
 	signal( SIGHUP, signal_handler );
 	signal( SIGQUIT, signal_handler );
 	signal( SIGILL, signal_handler );

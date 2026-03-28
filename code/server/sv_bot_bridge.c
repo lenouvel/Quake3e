@@ -14,7 +14,8 @@ Protocol: line-delimited JSON (\n terminated)
 #include "server.h"
 #include "../botlib/botlib.h"
 #include "sv_bot_bridge.h"
-#include "../botlib/be_ea.h"
+
+#include <math.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -32,6 +33,7 @@ typedef SOCKET socket_t;
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <signal.h>
 typedef int socket_t;
 #define INVALID_SOCK (-1)
 #define SOCK_ERROR   (-1)
@@ -208,8 +210,13 @@ static void Bridge_ParseVec3( const char *json, const char *key, vec3_t out ) {
     char search[64];
     const char *p;
 
+    // Try compact format "key":[  then spaced format "key": [
     Com_sprintf( search, sizeof(search), "\"%s\":[", key );
     p = strstr( json, search );
+    if ( !p ) {
+        Com_sprintf( search, sizeof(search), "\"%s\": [", key );
+        p = strstr( json, search );
+    }
     if ( !p ) {
         VectorClear( out );
         return;
@@ -245,6 +252,20 @@ static void Bridge_ProcessCommand( const char *json ) {
     cmd->clientNum  = clientNum;
 
     bridge.botCmdValid[clientNum] = qtrue;
+
+    // Debug: log first received command per bot
+    {
+        static int cmdRecvCount[MAX_CLIENTS] = {0};
+        cmdRecvCount[clientNum]++;
+        if ( cmdRecvCount[clientNum] <= 3 || cmdRecvCount[clientNum] % 500 == 0 ) {
+            Com_Printf( "Bridge DEBUG: received cmd #%d for bot %d: "
+                "move=(%.2f,%.2f,%.2f) speed=%.0f view=(%.1f,%.1f,%.1f)\n",
+                cmdRecvCount[clientNum], clientNum,
+                cmd->moveDir[0], cmd->moveDir[1], cmd->moveDir[2],
+                cmd->moveSpeed,
+                cmd->viewAngles[0], cmd->viewAngles[1], cmd->viewAngles[2] );
+        }
+    }
 }
 
 // ============================================================================
@@ -330,7 +351,9 @@ static void Bridge_ReceiveData( void ) {
                 *lineEnd = '\0';
 
                 // Check for registration message
-                if ( strstr( cl->recvBuf, "\"type\":\"register\"" ) ) {
+                // Support both "type":"register" and "type": "register" (with optional space)
+                if ( strstr( cl->recvBuf, "\"type\":\"register\"" ) ||
+                     strstr( cl->recvBuf, "\"type\": \"register\"" ) ) {
                     int botNum = Bridge_ParseInt( cl->recvBuf, "bot", -1 );
                     if ( botNum >= 0 && botNum < sv_maxclients->integer ) {
                         cl->isAI = qtrue;
@@ -343,7 +366,8 @@ static void Bridge_ReceiveData( void ) {
                     }
                 }
                 // Check for bot command
-                else if ( strstr( cl->recvBuf, "\"type\":\"cmd\"" ) ) {
+                else if ( strstr( cl->recvBuf, "\"type\":\"cmd\"" ) ||
+                          strstr( cl->recvBuf, "\"type\": \"cmd\"" ) ) {
                     if ( cl->isAI ) {
                         Bridge_ProcessCommand( cl->recvBuf );
                     }
@@ -372,13 +396,19 @@ static void Bridge_SendToAll( const char *data, int len ) {
     for ( i = 0; i < BRIDGE_MAX_CLIENTS; i++ ) {
         if ( !bridge.clients[i].active ) continue;
 
-        if ( send( bridge.clients[i].sock, data, len, 0 ) == SOCK_ERROR ) {
-#ifdef _WIN32
-            if ( WSAGetLastError() != WSAEWOULDBLOCK ) {
-#else
-            if ( errno != EAGAIN && errno != EWOULDBLOCK ) {
+        {
+            int flags = 0;
+#ifndef _WIN32
+            flags = MSG_NOSIGNAL;  // prevent SIGPIPE on broken connection
 #endif
-                Bridge_DisconnectClient( i );
+            if ( send( bridge.clients[i].sock, data, len, flags ) == SOCK_ERROR ) {
+#ifdef _WIN32
+                if ( WSAGetLastError() != WSAEWOULDBLOCK ) {
+#else
+                if ( errno != EAGAIN && errno != EWOULDBLOCK ) {
+#endif
+                    Bridge_DisconnectClient( i );
+                }
             }
         }
     }
@@ -392,6 +422,29 @@ void SV_BridgeInit( void ) {
     struct sockaddr_in addr;
     int opt = 1;
     int i;
+
+    // If the bridge is already running (map_restart), keep the listen socket
+    // and all client connections alive — only reset per-frame entity state.
+    if ( bridge.initialized && bridge.listenSock != INVALID_SOCK ) {
+        Com_Printf( "Bridge: map restart — keeping listen socket and %d client(s)\n",
+                     bridge.numClients );
+
+        // Reset entity state for the new map
+        if ( bridge.entities ) {
+            Com_Memset( bridge.entities, 0, BRIDGE_MAX_ENTITIES * sizeof(bridge_entity_t) );
+        }
+        if ( bridge.entityUpdated ) {
+            Com_Memset( bridge.entityUpdated, 0, BRIDGE_MAX_ENTITIES * sizeof(qboolean) );
+        }
+        bridge.numEntities = 0;
+        bridge.numEvents = 0;
+
+        // Clear pending bot commands (clients will re-send)
+        Com_Memset( bridge.botCmds, 0, sizeof(bridge.botCmds) );
+        Com_Memset( bridge.botCmdValid, 0, sizeof(bridge.botCmdValid) );
+
+        return;
+    }
 
     Com_Memset( &bridge, 0, sizeof(bridge) );
     bridge.listenSock = INVALID_SOCK;
@@ -424,6 +477,11 @@ void SV_BridgeInit( void ) {
             return;
         }
     }
+#endif
+
+#ifndef _WIN32
+    // Ignore SIGPIPE so writing to a disconnected client doesn't kill the server
+    signal( SIGPIPE, SIG_IGN );
 #endif
 
     bridge.listenSock = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
@@ -462,9 +520,22 @@ void SV_BridgeInit( void ) {
 }
 
 void SV_BridgeShutdown( void ) {
+    if ( !bridge.initialized ) return;
+
+    // On map_restart, SV_BotLibShutdown is called followed by SV_BotInitBotLib.
+    // We keep the bridge alive so clients don't lose their connections.
+    // SV_BridgeInit will detect the live bridge and skip re-creation.
+    // SV_BridgeForceShutdown is called from SV_Shutdown for a real server quit.
+    Com_Printf( "Bridge: keeping alive across map restart (%d client(s) connected)\n",
+                 bridge.numClients );
+}
+
+void SV_BridgeForceShutdown( void ) {
     int i;
 
     if ( !bridge.initialized ) return;
+
+    Com_Printf( "Bridge: full shutdown\n" );
 
     for ( i = 0; i < BRIDGE_MAX_CLIENTS; i++ ) {
         if ( bridge.clients[i].active ) {
@@ -498,7 +569,6 @@ void SV_BridgeShutdown( void ) {
     }
 
     bridge.initialized = qfalse;
-    Com_Printf( "Bridge: shutdown\n" );
 }
 
 void SV_BridgeUpdateEntity( int entNum, bot_entitystate_t *state ) {
@@ -578,7 +648,8 @@ void SV_BridgeFrame( int serverTime ) {
 
     // Build frame JSON
     n = Com_sprintf_truncated( sendBuf + len, sizeof(sendBuf) - len,
-        "{\"type\":\"state\",\"time\":%d,\"entities\":[", serverTime );
+        "{\"type\":\"state\",\"time\":%d,\"mapname\":\"%s\",\"entities\":[",
+        serverTime, sv_mapname->string );
     len += n;
 
     // Write updated entities
@@ -620,37 +691,94 @@ cleanup:
     bridge.numEvents = 0;
 }
 
+// Flag per client: bridge already called SV_ClientThink this frame
+qboolean bridgeBotProcessed[MAX_CLIENTS];
+
+static int bridgeDebugCounter = 0;
+
 void SV_BridgeApplyBotCommands( void ) {
     int i;
 
     if ( !bridge.initialized ) return;
 
-    // Enable EA functions for bridge commands
-    ea_bridge_active = 1;
+    // Reset processed flags at start of frame
+    Com_Memset( bridgeBotProcessed, 0, sizeof(bridgeBotProcessed) );
+
+    bridgeDebugCounter++;
 
     for ( i = 0; i < sv_maxclients->integer; i++ ) {
         bridge_bot_cmd_t *cmd;
+        playerState_t *ps;
+        usercmd_t ucmd;
+        float yaw_rad, cos_yaw, sin_yaw;
+        float fwd_dot, right_dot, speed_scale;
 
         if ( !bridge.botCmdValid[i] ) continue;
 
-        cmd = &bridge.botCmds[i];
-
-        // Apply commands through the EA system
-        if ( cmd->moveSpeed > 0.001f ) {
-            EA_Move( i, cmd->moveDir, cmd->moveSpeed );
+        // Verify this client slot is active
+        if ( svs.clients[i].state != CS_ACTIVE ) {
+            if ( bridgeDebugCounter % 200 == 1 ) {
+                Com_Printf( "Bridge DEBUG: bot %d has cmd but state=%d (not ACTIVE)\n",
+                    i, svs.clients[i].state );
+            }
+            continue;
         }
-        EA_View( i, cmd->viewAngles );
 
-        if ( cmd->attack )  EA_Attack( i );
-        if ( cmd->jump )    EA_Jump( i );
-        if ( cmd->crouch )  EA_Crouch( i );
-        if ( cmd->use )     EA_Use( i );
-        if ( cmd->respawn ) EA_Respawn( i );
-        if ( cmd->weapon )  EA_SelectWeapon( i, cmd->weapon );
+        cmd = &bridge.botCmds[i];
+        ps = SV_GameClientNum( i );
+        if ( !ps ) continue;
+
+        // Build usercmd_t directly — bypasses the entire EA/QVM bot AI pipeline
+        Com_Memset( &ucmd, 0, sizeof(ucmd) );
+        ucmd.serverTime = sv.time;
+
+        // --- View angles ---
+        // usercmd.angles = ANGLE2SHORT(desired) - ps->delta_angles
+        ucmd.angles[0] = ANGLE2SHORT( cmd->viewAngles[0] ) - ps->delta_angles[0];
+        ucmd.angles[1] = ANGLE2SHORT( cmd->viewAngles[1] ) - ps->delta_angles[1];
+        ucmd.angles[2] = ANGLE2SHORT( cmd->viewAngles[2] ) - ps->delta_angles[2];
+
+        // --- Movement ---
+        // Convert world-space moveDir to player-relative forward/right
+        yaw_rad = (float)( cmd->viewAngles[1] * M_PI / 180.0 );
+        cos_yaw = (float)cos( yaw_rad );
+        sin_yaw = (float)sin( yaw_rad );
+
+        // Player's forward vector: [cos(yaw), sin(yaw)]
+        // Player's right vector:   [sin(yaw), -cos(yaw)]
+        fwd_dot   = cmd->moveDir[0] * cos_yaw + cmd->moveDir[1] * sin_yaw;
+        right_dot = cmd->moveDir[0] * sin_yaw - cmd->moveDir[1] * cos_yaw;
+
+        speed_scale = cmd->moveSpeed / 127.0f;
+        if ( speed_scale > 1.0f ) speed_scale = 1.0f;
+
+        ucmd.forwardmove = (signed char)( fwd_dot * speed_scale * 127.0f );
+        ucmd.rightmove   = (signed char)( right_dot * speed_scale * 127.0f );
+
+        // --- Vertical movement ---
+        if ( cmd->jump )        ucmd.upmove = 127;
+        else if ( cmd->crouch ) ucmd.upmove = -127;
+
+        // --- Buttons ---
+        if ( cmd->attack )  ucmd.buttons |= BUTTON_ATTACK;
+
+        // --- Weapon ---
+        ucmd.weapon = (byte)( cmd->weapon ? cmd->weapon : ps->weapon );
+
+        // Debug logging (every 200 frames for bot 0)
+        if ( i == 0 && bridgeDebugCounter % 200 == 1 ) {
+            Com_Printf( "Bridge DEBUG: bot %d cmd fwd=%d right=%d up=%d "
+                "svtime=%d cmdtime=%d pos=(%.0f,%.0f,%.0f) vel=(%.0f,%.0f,%.0f)\n",
+                i, ucmd.forwardmove, ucmd.rightmove, ucmd.upmove,
+                sv.time, ps->commandTime,
+                ps->origin[0], ps->origin[1], ps->origin[2],
+                ps->velocity[0], ps->velocity[1], ps->velocity[2] );
+        }
+
+        // Inject the command directly into the engine
+        SV_ClientThink( &svs.clients[i], &ucmd );
+        bridgeBotProcessed[i] = qtrue;
     }
-
-    // Disable EA functions again (QVM calls become no-ops)
-    ea_bridge_active = 0;
 }
 
 qboolean SV_BridgeControlsBot( int clientNum ) {

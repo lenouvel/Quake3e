@@ -679,21 +679,9 @@ static void SVC_Status( const netadr_t *from ) {
 	}
 #endif
 
-	// Prevent using getstatus as an amplifier
-	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
-		if ( com_developer->integer ) {
-			Com_Printf( "SVC_Status: rate limit from %s exceeded, dropping request\n",
-				NET_AdrToString( from ) );
-		}
-		return;
-	}
+	// Rate limit disabled for AI bot training
 
-	// Allow getstatus to be DoSed relatively easily, but prevent
-	// excess outbound bandwidth usage when being flooded inbound
-	if ( SVC_RateLimit( &outboundRateLimit, 10, 100 ) ) {
-		Com_DPrintf( "SVC_Status: rate limit exceeded, dropping request\n" );
-		return;
-	}
+	// Rate limit disabled for AI bot training (outbound getstatus)
 
 	// A maximum challenge length of 128 should be more than plenty.
 	if ( strlen( Cmd_Argv( 1 ) ) > 128 )
@@ -749,21 +737,9 @@ static void SVC_Info( const netadr_t *from ) {
 	}
 #endif
 
-	// Prevent using getinfo as an amplifier
-	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
-		if ( com_developer->integer ) {
-			Com_Printf( "SVC_Info: rate limit from %s exceeded, dropping request\n",
-				NET_AdrToString( from ) );
-		}
-		return;
-	}
+	// Rate limit disabled for AI bot training
 
-	// Allow getinfo to be DoSed relatively easily, but prevent
-	// excess outbound bandwidth usage when being flooded inbound
-	if ( SVC_RateLimit( &outboundRateLimit, 10, 100 ) ) {
-		Com_DPrintf( "SVC_Info: rate limit exceeded, dropping request\n" );
-		return;
-	}
+	// Rate limit disabled for AI bot training (outbound getinfo)
 
 	/*
 	 * Check whether Cmd_Argv(1) has a sane length. This was not done in the original Quake3 version which led
@@ -846,14 +822,7 @@ static void SVC_RemoteCommand( const netadr_t *from ) {
 	char		sv_outputbuf[1024 - 16];
 	const char	*cmd_aux, *pw;
 
-	// Prevent using rcon as an amplifier and make dictionary attacks impractical
-	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
-		if ( com_developer->integer ) {
-			Com_Printf( "SVC_RemoteCommand: rate limit from %s exceeded, dropping request\n",
-				NET_AdrToString( from ) );
-		}
-		return;
-	}
+	// Rate limit disabled for AI bot training
 
 	pw = Cmd_Argv( 1 );
 	if ( ( sv_rconPassword->string[0] && strcmp( pw, sv_rconPassword->string ) == 0 ) ||
@@ -861,12 +830,7 @@ static void SVC_RemoteCommand( const netadr_t *from ) {
 		valid = qtrue;
 		Com_Printf( "Rcon from %s: %s\n", NET_AdrToString( from ), Cmd_ArgsFrom( 2 ) );
 	} else {
-		// Make DoS via rcon impractical
-		if ( SVC_RateLimit( &bucket, 10, 1000 ) ) {
-			Com_DPrintf( "SVC_RemoteCommand: rate limit exceeded, dropping request\n" );
-			return;
-		}
-
+		// Rate limit disabled for AI bot training (bad rcon password)
 		valid = qfalse;
 		Com_Printf( "Bad rcon from %s: %s\n", NET_AdrToString( from ), Cmd_ArgsFrom( 2 ) );
 	}
