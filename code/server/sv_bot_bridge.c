@@ -728,6 +728,17 @@ void SV_BridgeApplyBotCommands( void ) {
         ps = SV_GameClientNum( i );
         if ( !ps ) continue;
 
+        // --- Respawn request ---
+        // Python AI signals a stuck/stray bot: execute "kill" so the QVM
+        // handles suicide + respawn to a spawn point, then skip this frame.
+        if ( cmd->respawn ) {
+            Com_Printf( "Bridge: respawning bot %d (kill command)\n", i );
+            SV_ExecuteClientCommand( &svs.clients[i], "kill" );
+            bridge.botCmdValid[i] = qfalse;
+            cmd->respawn = 0;
+            continue;
+        }
+
         // Build usercmd_t directly — bypasses the entire EA/QVM bot AI pipeline
         Com_Memset( &ucmd, 0, sizeof(ucmd) );
         ucmd.serverTime = sv.time;
