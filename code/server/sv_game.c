@@ -1074,6 +1074,20 @@ static void SV_InitGameVM( qboolean restart ) {
 	// use the current msec count for a random seed
 	// init for this gamestate
 	VM_Call( gvm, 3, GAME_INIT, sv.time, Com_Milliseconds(), restart );
+
+	// Re-pin cvars reset by the QVM at game init. GAME_INIT (G_InitGame) forces
+	// some cvars back to a default on every (re)spawn — e.g. UrT 4.3.4 forces
+	// g_stamina to 1 even in Jump mode — silently overriding the pushed config.
+	// SV_InitGameVM runs for BOTH a map load and a map_restart (incl. the QVM's
+	// warmup->match restart), so re-applying server_pin.cfg right here fixes any
+	// such cvar deterministically, with no timing/sleep. No-op if absent.
+	// (server_pin.cfg is rendered by Bot_Python_IA/server_control.py.)
+	// FS_ReadFile(...,NULL) searches ALL fs paths (homepath+basepath+pk3), unlike
+	// FS_FileExists which only checks fs_homepath — same idiom the engine uses for
+	// default.cfg. So the file is found whether it lives in homepath or basepath.
+	if ( FS_ReadFile( "server_pin.cfg", NULL ) > 0 ) {
+		Cbuf_ExecuteText( EXEC_APPEND, "exec server_pin.cfg\n" );
+	}
 }
 
 
