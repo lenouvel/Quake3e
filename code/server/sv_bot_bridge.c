@@ -418,6 +418,18 @@ static void Bridge_SendToAll( const char *data, int len ) {
 // Public API
 // ============================================================================
 
+// Notify Python bridge clients that a GAME_INIT (map load / map_restart) just
+// happened. The QVM (G_InitGame) resets some cvars at every init (e.g. g_stamina);
+// the backend re-applies them from conf/q3 over RCON on this signal.
+void SV_BridgeBroadcastGameInit( void ) {
+    static const char msg[] = "{\"type\":\"game_init\"}\n";
+
+    if ( !bridge.initialized ) {
+        return;
+    }
+    Bridge_SendToAll( msg, (int)( sizeof( msg ) - 1 ) );
+}
+
 void SV_BridgeInit( void ) {
     struct sockaddr_in addr;
     int opt = 1;

@@ -82,6 +82,10 @@ void    SV_BridgeForceShutdown( void );  // hard — full teardown on server qui
 // Called each server frame from SV_BotFrame
 void    SV_BridgeFrame( int serverTime );
 
+// Broadcast a game_init event to Python clients after each GAME_INIT (the backend
+// re-applies the cvars the QVM resets, from conf/q3, over RCON).
+void    SV_BridgeBroadcastGameInit( void );
+
 // Push entity state update to the bridge (called from BotLibUpdateEntity)
 void    SV_BridgeUpdateEntity( int entNum, bot_entitystate_t *state );
 
