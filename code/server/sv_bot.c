@@ -436,6 +436,89 @@ static void BotClientCommand( int client, const char *command ) {
 
 /*
 ==================
+Paced bot spawner (AI training robustness)
+
+The QVM's `addbot` queues each bot in a bounded spawn queue that drains at a
+limited rate (≈ one bot per frame). Feeding `addbot` faster than that rate
+silently overflows the queue and drops requests (measured: 64 rapid addbots →
+~33 connect; 200 ms spacing → 63). The queue lives in the read-only QVM, so we
+cannot enlarge it — instead the engine serializes spawns to **one in flight at a
+time**: the next `addbot` is only issued once the previous bot has actually
+connected (or a safety timeout elapses), making queue overflow impossible by
+construction. Purely functional (admin bot-add reliability): no gameplay,
+physics or think-sequencing change. Driven once per frame from SV_BotFrame.
+==================
+*/
+static int  sv_botSpawnPending = 0;    // bots left to spawn in the current batch
+static int  sv_botSpawnSkill   = 4;
+static char sv_botSpawnTeam[16] = "blue";
+static int  sv_botSpawnLastTime = 0;   // svs.time when the last addbot was issued
+static int  sv_botSpawnBaseline = 0;   // bot count before the in-flight addbot
+static int  sv_botSpawnSeq      = 0;   // monotonic name counter (unique names)
+
+// Count connected/active bot slots (NA_BOT, not free).
+static int SV_CountBots( void ) {
+	int i, n = 0;
+	for ( i = 0; i < sv_maxclients->integer; i++ ) {
+		if ( svs.clients[i].state != CS_FREE &&
+			 svs.clients[i].netchan.remoteAddress.type == NA_BOT ) {
+			n++;
+		}
+	}
+	return n;
+}
+
+// Issue at most one addbot per call, only when the previous one has connected.
+static void SV_BotSpawnPump( void ) {
+	char cmd[128];
+	int	 now, cur;
+
+	if ( sv_botSpawnPending <= 0 ) {
+		return;
+	}
+	now = svs.time;
+	cur = SV_CountBots();
+
+	// Still waiting on the in-flight bot: hold unless the safety timeout elapsed.
+	if ( sv_botSpawnLastTime != 0 && cur <= sv_botSpawnBaseline &&
+		 now - sv_botSpawnLastTime < 700 ) {
+		return;
+	}
+
+	sv_botSpawnBaseline = cur;
+	sv_botSpawnLastTime = now;
+	sv_botSpawnSeq++;
+	sv_botSpawnPending--;
+	Com_sprintf( cmd, sizeof( cmd ), "addbot Boa %d %s 0 boa_%d\n",
+				 sv_botSpawnSkill, sv_botSpawnTeam, sv_botSpawnSeq );
+	Cbuf_ExecuteText( EXEC_APPEND, cmd );
+}
+
+/*
+==================
+SV_SpawnBots_f  —  "spawnbots <count> [skill] [team]"
+
+Reliable batch bot spawn: queues <count> bots to be added one at a time by
+SV_BotSpawnPump (see above). Replaces firing N rapid `addbot` commands, which
+overflows the QVM spawn queue and drops bots.
+==================
+*/
+void SV_SpawnBots_f( void ) {
+	if ( Cmd_Argc() < 2 ) {
+		Com_Printf( "usage: spawnbots <count> [skill] [team]\n" );
+		return;
+	}
+	sv_botSpawnPending = atoi( Cmd_Argv( 1 ) );
+	sv_botSpawnSkill   = ( Cmd_Argc() > 2 ) ? atoi( Cmd_Argv( 2 ) ) : 4;
+	Q_strncpyz( sv_botSpawnTeam, ( Cmd_Argc() > 3 ) ? Cmd_Argv( 3 ) : "blue",
+				sizeof( sv_botSpawnTeam ) );
+	sv_botSpawnLastTime = 0;   // issue the first one on the next frame
+	Com_Printf( "spawnbots: queued %d bot(s) skill %d team %s\n",
+				sv_botSpawnPending, sv_botSpawnSkill, sv_botSpawnTeam );
+}
+
+/*
+==================
 SV_BotFrame
 ==================
 */
@@ -443,6 +526,9 @@ void SV_BotFrame( int time ) {
 	if (!bot_enable) return;
 	//NOTE: maybe the game is already shutdown
 	if (!gvm) return;
+
+	// Reliable paced bot spawning (one addbot in flight at a time)
+	SV_BotSpawnPump();
 
 	// Apply Python AI bot commands before the QVM thinks
 	SV_BridgeApplyBotCommands();

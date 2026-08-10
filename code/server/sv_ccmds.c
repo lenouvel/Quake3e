@@ -1481,6 +1481,7 @@ void SV_AddOperatorCommands( void ) {
 #endif
 #endif
 	Cmd_AddCommand ("clientkick", SV_KickNum_f);
+	Cmd_AddCommand ("spawnbots", SV_SpawnBots_f);  // reliable paced bot batch spawn
 	Cmd_AddCommand ("status", SV_Status_f);
 	Cmd_AddCommand ("dumpuser", SV_DumpUser_f);
 	Cmd_AddCommand ("map_restart", SV_MapRestart_f);

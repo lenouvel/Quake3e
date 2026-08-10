@@ -74,6 +74,7 @@ static struct {
 
     cvar_t  *port;
     cvar_t  *enabled;
+    cvar_t  *fullstate;     // 1 = emit every active client each frame (see SV_BridgeRefreshActiveClients)
 } bridge;
 
 // ============================================================================
@@ -463,6 +464,9 @@ void SV_BridgeInit( void ) {
 
     bridge.enabled = Cvar_Get( "bridge_enabled", "0", 0 );
     bridge.port = Cvar_Get( "bridge_port", va("%d", BRIDGE_DEFAULT_PORT), CVAR_ARCHIVE );
+    // 1 = engine emits every active client's fresh kinematics each server frame
+    // (decouples observation rate from the QVM's ~10 Hz entity push). See piège 22.
+    bridge.fullstate = Cvar_Get( "bridge_fullstate", "1", 0 );
 
     if ( !bridge.enabled->integer ) {
         Com_Printf( "Bridge: disabled (set bridge_enabled 1 to enable)\n" );
@@ -641,6 +645,53 @@ void SV_BridgePushEvent( bridge_event_t *event ) {
     bridge.numEvents++;
 }
 
+/*
+==================
+SV_BridgeRefreshActiveClients
+
+Emit every active client (bot or human) EVERY server frame, reading fresh
+kinematics straight from playerState_t (updated this frame by SV_ClientThink).
+
+The QVM only pushes entities via BOTLIB_UPDATENTITY at its fixed bot-think rate
+(~10 Hz regardless of sv_fps / bot_thinktime — measured), which caps the Python
+observation rate at 10 Hz per bot. This function bypasses that path for the
+kinematic fields the training loop needs (origin/velocity/viewangles/health),
+giving sv_fps-rate observations for all clients. QVM-supplied static fields
+(mins/maxs, anims, modelindex) persist in bridge.entities[] between the QVM's
+10 Hz updates (the array is never zeroed per frame). Purely functional — reads
+existing state, no gameplay/physics/think change. Gated by bridge_fullstate.
+==================
+*/
+static void SV_BridgeRefreshActiveClients( void ) {
+    int i;
+
+    if ( !sv_maxclients || !sv.gameClients ) return;
+
+    for ( i = 0; i < sv_maxclients->integer; i++ ) {
+        bridge_entity_t *b;
+        playerState_t *ps;
+
+        if ( svs.clients[i].state != CS_ACTIVE ) continue;
+        ps = SV_GameClientNum( i );
+        if ( !ps ) continue;
+
+        b = &bridge.entities[i];
+        VectorCopy( ps->origin, b->base.origin );       // fresh position (sv_fps)
+        VectorCopy( ps->velocity, b->velocity );
+        VectorCopy( ps->viewangles, b->viewangles );
+        b->health         = ps->stats[0];               // STAT_HEALTH
+        b->armor          = ps->stats[3];               // STAT_ARMOR
+        b->clientNum      = i;
+        b->base.groundent = ps->groundEntityNum;
+        b->base.weapon    = ps->weapon;
+        b->ammo = ( ps->weapon >= 0 && ps->weapon < MAX_WEAPONS ) ? ps->ammo[ps->weapon] : 0;
+        if ( b->base.type == 0 ) b->base.type = 1;      // ET_PLAYER (so obs/viz recognise it)
+
+        bridge.entityUpdated[i] = qtrue;                // include in this frame's emit
+        if ( i >= bridge.numEntities ) bridge.numEntities = i + 1;
+    }
+}
+
 void SV_BridgeFrame( int serverTime ) {
     static char sendBuf[BRIDGE_BUFFER_SIZE * 4];
     int len = 0;
@@ -654,6 +705,11 @@ void SV_BridgeFrame( int serverTime ) {
 
     // Receive data from Python clients
     Bridge_ReceiveData();
+
+    // Emit all active clients at sv_fps (independent of the QVM's ~10 Hz push)
+    if ( bridge.fullstate && bridge.fullstate->integer ) {
+        SV_BridgeRefreshActiveClients();
+    }
 
     // If no clients connected, skip building the JSON
     if ( bridge.numClients == 0 ) goto cleanup;
