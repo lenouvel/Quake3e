@@ -530,12 +530,34 @@ void SV_BotFrame( int time ) {
 	// Reliable paced bot spawning (one addbot in flight at a time)
 	SV_BotSpawnPump();
 
-	// Apply Python AI bot commands before the QVM thinks
+	// Apply Python AI bot commands before the QVM thinks / physics runs
 	SV_BridgeApplyBotCommands();
 
 	VM_Call( gvm, 1, BOTAI_START_FRAME, time );
 
-	// Stream game state to Python after the QVM has processed
+	// NOTE: the bridge state emit moved to SV_BotBridgePostFrame(), which SV_Frame
+	// calls AFTER the GAME_RUN_FRAME physics loop, so Python observations reflect
+	// the physics that just ran (removes ~1 frame of latency, see that function).
+}
+
+/*
+==================
+SV_BotBridgePostFrame
+
+Emit the Python bridge game state AFTER the game simulation (GAME_RUN_FRAME) has
+run this server frame. The emit used to live at the end of SV_BotFrame, which
+SV_Frame calls BEFORE the GAME_RUN_FRAME loop -> every emitted observation lagged
+the physics by one frame (a command applied this frame only appeared two emits
+later, giving a ~2-frame action->effect round-trip). Emitting post-physics makes
+observations current and halves the round-trip to the 1-frame floor. Functional
+only (snapshot timing): no physics/gameplay/think change, and the bot ucmd is
+still applied pre-physics in SV_BotFrame.
+==================
+*/
+void SV_BotBridgePostFrame( int time ) {
+	if (!bot_enable) return;
+	if (!gvm) return;
+
 	SV_BridgeFrame( time );
 }
 

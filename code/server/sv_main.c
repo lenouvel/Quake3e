@@ -1386,6 +1386,12 @@ void SV_Frame( int msec ) {
 		VM_Call( gvm, 1, GAME_RUN_FRAME, sv.time );
 	}
 
+	// Emit the Python bridge state now that GAME_RUN_FRAME has integrated this
+	// frame's physics, so observations are current (removes ~1 frame of latency;
+	// the bot ucmd was already applied pre-physics in SV_BotFrame above).
+	if ( com_dedicated->integer )
+		SV_BotBridgePostFrame( sv.time );
+
 	if ( com_speeds->integer ) {
 		time_game = Sys_Milliseconds () - startTime;
 	}
