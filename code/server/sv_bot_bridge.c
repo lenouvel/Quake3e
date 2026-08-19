@@ -769,6 +769,18 @@ void SV_BridgeApplyBotCommands( void ) {
 
     if ( !bridge.initialized ) return;
 
+    // --- Latency fix: drain incoming commands HERE (start of the frame, right
+    // before applying them) instead of only in SV_BridgeFrame (end of the frame,
+    // after the QVM think). Without this, a command that arrives during frame F is
+    // only cached at frame F's end and applied at frame F+1's start — and since
+    // Python computes it from the state emitted at F's end, it lands one frame
+    // later still, costing ~1 extra frame of action->effect round-trip.
+    // Purely functional: fresher usercmd, no change to think sequencing or physics
+    // (the bot still gets exactly one usercmd per frame). Client sockets are
+    // non-blocking, so this returns immediately when nothing is pending, and the
+    // later Bridge_ReceiveData() in SV_BridgeFrame still handles accept/monitor.
+    Bridge_ReceiveData();
+
     // Reset processed flags at start of frame
     Com_Memset( bridgeBotProcessed, 0, sizeof(bridgeBotProcessed) );
 
