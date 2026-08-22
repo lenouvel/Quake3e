@@ -247,6 +247,7 @@ static void Bridge_ProcessCommand( const char *json ) {
     cmd->attack     = Bridge_ParseInt( json, "attack", 0 );
     cmd->jump       = Bridge_ParseInt( json, "jump", 0 );
     cmd->crouch     = Bridge_ParseInt( json, "crouch", 0 );
+    cmd->sprint     = Bridge_ParseInt( json, "sprint", 0 );
     cmd->use        = Bridge_ParseInt( json, "use", 0 );
     cmd->weapon     = Bridge_ParseInt( json, "weapon", 0 );
     cmd->respawn    = Bridge_ParseInt( json, "respawn", 0 );
@@ -852,6 +853,14 @@ void SV_BridgeApplyBotCommands( void ) {
 
         // --- Buttons ---
         if ( cmd->attack )  ucmd.buttons |= BUTTON_ATTACK;
+        // BUTTON_SPRINT is a QVM/game button (q_shared.h in the mod: 1<<8) that the
+        // engine's own q_shared.h does not define; the value is passed through
+        // verbatim to the game VM. Sprint raises the ground/ice wishspeed to
+        // UT_MAX_SPRINTSPEED (340) and switches PM_WalkMove to the faster accel
+        // branch (pm_friction+0.05) -- the ice acceleration regime. Purely an input
+        // passthrough: no physics/gameplay/think change (cf. attack/jump above).
+        // NB the QVM only honours sprint when rightmove==0 && forwardmove>80.
+        if ( cmd->sprint )  ucmd.buttons |= 256; /* BUTTON_SPRINT (1<<8) */
 
         // --- Weapon ---
         ucmd.weapon = (byte)( cmd->weapon ? cmd->weapon : ps->weapon );

@@ -69,6 +69,7 @@ typedef struct {
     int     attack;         // 1 = fire
     int     jump;           // 1 = jump
     int     crouch;         // 1 = crouch
+    int     sprint;         // 1 = hold sprint (BUTTON_SPRINT) -- ice/ground accel
     int     use;            // 1 = use
     int     weapon;         // weapon to select (0 = no change)
     int     respawn;        // 1 = respawn
