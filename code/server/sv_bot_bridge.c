@@ -416,6 +416,39 @@ static void Bridge_SendToAll( const char *data, int len ) {
     }
 }
 
+// Per-frame game STATE is consumed only by MONITOR clients (the training loop
+// reads every bot's observation from ONE monitor connection). AI clients are
+// send-only: streaming the full state to each was pure overhead — N redundant
+// engine-side copies, N Python recv threads draining+discarding it, and a
+// socket backlog that floods every core the instant the trainer pauses the
+// collect loop for a PPO update. Emitting to monitors only removes all of that.
+// (game_init still uses Bridge_SendToAll — rare, and AI clients simply ignore
+// it.) Functional only: no gameplay/physics/think change.
+static void Bridge_SendToMonitors( const char *data, int len ) {
+    int i;
+
+    for ( i = 0; i < BRIDGE_MAX_CLIENTS; i++ ) {
+        if ( !bridge.clients[i].active ) continue;
+        if ( bridge.clients[i].isAI ) continue;   // AI = send-only, ignores state
+
+        {
+            int flags = 0;
+#ifndef _WIN32
+            flags = MSG_NOSIGNAL;  // prevent SIGPIPE on broken connection
+#endif
+            if ( send( bridge.clients[i].sock, data, len, flags ) == SOCK_ERROR ) {
+#ifdef _WIN32
+                if ( WSAGetLastError() != WSAEWOULDBLOCK ) {
+#else
+                if ( errno != EAGAIN && errno != EWOULDBLOCK ) {
+#endif
+                    Bridge_DisconnectClient( i );
+                }
+            }
+        }
+    }
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -748,8 +781,9 @@ void SV_BridgeFrame( int serverTime ) {
     n = Com_sprintf_truncated( sendBuf + len, sizeof(sendBuf) - len, "]}\n" );
     len += n;
 
-    // Send to all connected clients
-    Bridge_SendToAll( sendBuf, len );
+    // Send to MONITOR clients only — AI clients are send-only and never read the
+    // state (obs come from the single monitor connection). See Bridge_SendToMonitors.
+    Bridge_SendToMonitors( sendBuf, len );
 
 cleanup:
     // Reset per-frame state
