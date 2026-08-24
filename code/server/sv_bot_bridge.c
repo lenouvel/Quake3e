@@ -260,7 +260,7 @@ static void Bridge_ProcessCommand( const char *json ) {
         static int cmdRecvCount[MAX_CLIENTS] = {0};
         cmdRecvCount[clientNum]++;
         if ( cmdRecvCount[clientNum] <= 3 || cmdRecvCount[clientNum] % 500 == 0 ) {
-            Com_Printf( "Bridge DEBUG: received cmd #%d for bot %d: "
+            Com_DPrintf( "Bridge DEBUG: received cmd #%d for bot %d: "
                 "move=(%.2f,%.2f,%.2f) speed=%.0f view=(%.1f,%.1f,%.1f)\n",
                 cmdRecvCount[clientNum], clientNum,
                 cmd->moveDir[0], cmd->moveDir[1], cmd->moveDir[2],
@@ -833,7 +833,7 @@ void SV_BridgeApplyBotCommands( void ) {
         // Verify this client slot is active
         if ( svs.clients[i].state != CS_ACTIVE ) {
             if ( bridgeDebugCounter % 200 == 1 ) {
-                Com_Printf( "Bridge DEBUG: bot %d has cmd but state=%d (not ACTIVE)\n",
+                Com_DPrintf( "Bridge DEBUG: bot %d has cmd but state=%d (not ACTIVE)\n",
                     i, svs.clients[i].state );
             }
             continue;
@@ -847,7 +847,7 @@ void SV_BridgeApplyBotCommands( void ) {
         // Python AI signals a stuck/stray bot: execute "kill" so the QVM
         // handles suicide + respawn to a spawn point, then skip this frame.
         if ( cmd->respawn ) {
-            Com_Printf( "Bridge: respawning bot %d (kill command)\n", i );
+            Com_DPrintf( "Bridge: respawning bot %d (kill command)\n", i );
             SV_ExecuteClientCommand( &svs.clients[i], "kill" );
             bridge.botCmdValid[i] = qfalse;
             cmd->respawn = 0;
@@ -901,7 +901,7 @@ void SV_BridgeApplyBotCommands( void ) {
 
         // Debug logging (every 200 frames for bot 0)
         if ( i == 0 && bridgeDebugCounter % 200 == 1 ) {
-            Com_Printf( "Bridge DEBUG: bot %d cmd fwd=%d right=%d up=%d "
+            Com_DPrintf( "Bridge DEBUG: bot %d cmd fwd=%d right=%d up=%d "
                 "svtime=%d cmdtime=%d pos=(%.0f,%.0f,%.0f) vel=(%.0f,%.0f,%.0f)\n",
                 i, ucmd.forwardmove, ucmd.rightmove, ucmd.upmove,
                 sv.time, ps->commandTime,
