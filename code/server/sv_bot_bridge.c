@@ -116,6 +116,75 @@ static int Bridge_WriteVec3( char *buf, int maxlen, const char *key, vec3_t v ) 
     return Com_sprintf_truncated( buf, maxlen, "\"%s\":[%.2f,%.2f,%.2f]", key, v[0], v[1], v[2] );
 }
 
+// ============================================================================
+// Geometric distance sensors (engine-side raycasts). Box-trace the player hull
+// against the WORLD collision model (exact walls, bodies excluded) along a fixed
+// fan of bearings. Bearings MUST match obs_action_spec.py (WALL_FRONT/WALL_SIDE
+// view-relative, VEL_CLUSTER velocity-relative). Sends RAW distances (units);
+// Python normalises to proximity = 1 - min(d,R)/R. Purely read-only (no game-state
+// change); computed only while building a frame, i.e. only when a client is
+// connected. See Bot_Python_IA/docs/generalisation_transfert.md section 6.
+// ============================================================================
+#define BRIDGE_SENSOR_N_ARC   13   // wall_front(7) + wall_side(6), view-relative
+#define BRIDGE_SENSOR_N_VEL   3    // vel_lookahead cluster, velocity-relative
+#define BRIDGE_SENSOR_N_RAY   (BRIDGE_SENSOR_N_ARC + BRIDGE_SENSOR_N_VEL)  // 16
+#define BRIDGE_SENSOR_RANGE_U 2048.0f
+#define BRIDGE_SENSOR_RANGE_V 512.0f
+// world walls the player collides with, EXCLUDING bodies (other bots aren't walls).
+#define BRIDGE_WALL_MASK      (CONTENTS_SOLID | CONTENTS_PLAYERCLIP)
+
+static const float bridge_arc_deg[BRIDGE_SENSOR_N_ARC] = {
+    -67.5f, -45.0f, -22.5f, 0.0f, 22.5f, 45.0f, 67.5f,       // wall_front (vs view yaw)
+    -135.0f, -112.5f, -90.0f, 90.0f, 112.5f, 135.0f          // wall_side  (vs view yaw)
+};
+static const float bridge_vel_deg[BRIDGE_SENSOR_N_VEL] = { -20.0f, 0.0f, 20.0f };
+
+// Horizontal box-trace of the player hull from `start` along world bearing `deg`.
+static float Bridge_TraceDist( const vec3_t start, float deg, float range ) {
+    static const vec3_t pmins = { -15.0f, -15.0f, -24.0f };  // standard player hull
+    static const vec3_t pmaxs = {  15.0f,  15.0f,  32.0f };
+    float rad = DEG2RAD( deg );
+    vec3_t end;
+    trace_t tr;
+    end[0] = start[0] + cosf( rad ) * range;
+    end[1] = start[1] + sinf( rad ) * range;
+    end[2] = start[2];
+    CM_BoxTrace( &tr, start, end, pmins, pmaxs, 0, BRIDGE_WALL_MASK, qfalse );
+    return tr.fraction * range;
+}
+
+// Vertical point-trace (dz = +-range) -> distance to ground/ceiling; SURF_SLICK out.
+static float Bridge_TraceVert( const vec3_t start, float dz, int *slickOut ) {
+    static const vec3_t zero = { 0.0f, 0.0f, 0.0f };
+    vec3_t end;
+    trace_t tr;
+    VectorCopy( start, end );
+    end[2] += dz;
+    CM_BoxTrace( &tr, start, end, zero, zero, 0, BRIDGE_WALL_MASK, qfalse );
+    if ( slickOut )
+        *slickOut = ( tr.fraction < 1.0f && ( tr.surfaceFlags & SURF_SLICK ) ) ? 1 : 0;
+    return tr.fraction * ( dz < 0 ? -dz : dz );
+}
+
+// Fill the 16 ray distances (view-arc then velocity-cluster) + ground/ceiling + slick.
+static void Bridge_ComputeSensors( bridge_entity_t *ent, float *rays, float *ground,
+                                   float *ceiling, int *slick ) {
+    float yaw = ent->viewangles[YAW];
+    float vh  = sqrtf( ent->velocity[0]*ent->velocity[0] + ent->velocity[1]*ent->velocity[1] );
+    // velocity heading; fall back to the view when ~stationary (matches raycast.py).
+    float velyaw = ( vh > 1.0f )
+        ? RAD2DEG( atan2f( ent->velocity[1], ent->velocity[0] ) ) : yaw;
+    int k;
+    for ( k = 0; k < BRIDGE_SENSOR_N_ARC; k++ )
+        rays[k] = Bridge_TraceDist( ent->base.origin, yaw + bridge_arc_deg[k],
+                                    BRIDGE_SENSOR_RANGE_U );
+    for ( k = 0; k < BRIDGE_SENSOR_N_VEL; k++ )
+        rays[BRIDGE_SENSOR_N_ARC + k] = Bridge_TraceDist(
+            ent->base.origin, velyaw + bridge_vel_deg[k], BRIDGE_SENSOR_RANGE_U );
+    *ground  = Bridge_TraceVert( ent->base.origin, -BRIDGE_SENSOR_RANGE_V, slick );
+    *ceiling = Bridge_TraceVert( ent->base.origin,  BRIDGE_SENSOR_RANGE_V, NULL );
+}
+
 static int Bridge_WriteEntityJson( char *buf, int maxlen, int entNum, bridge_entity_t *ent ) {
     int len = 0;
     int n;
@@ -151,12 +220,29 @@ static int Bridge_WriteEntityJson( char *buf, int maxlen, int entNum, bridge_ent
         ",\"health\":%d,\"armor\":%d,\"weapon\":%d,\"ammo\":%d,"
         "\"clientNum\":%d,\"groundent\":%d,\"event\":%d,\"eventParm\":%d,"
         "\"powerups\":%d,\"modelindex\":%d,\"modelindex2\":%d,"
-        "\"legsAnim\":%d,\"torsoAnim\":%d}",
+        "\"legsAnim\":%d,\"torsoAnim\":%d",
         ent->health, ent->armor, b->weapon, ent->ammo,
         ent->clientNum, b->groundent, b->event, b->eventParm,
         b->powerups, b->modelindex, b->modelindex2,
         b->legsAnim, b->torsoAnim );
     len += n;
+
+    // Geometric distance sensors (raw units; Python normalises to proximity).
+    {
+        float rays[BRIDGE_SENSOR_N_RAY], ground, ceiling;
+        int   slick, r;
+        Bridge_ComputeSensors( ent, rays, &ground, &ceiling, &slick );
+        n = Com_sprintf_truncated( buf + len, maxlen - len, ",\"rays\":[" );
+        len += n;
+        for ( r = 0; r < BRIDGE_SENSOR_N_RAY; r++ ) {
+            n = Com_sprintf_truncated( buf + len, maxlen - len,
+                r ? ",%.1f" : "%.1f", rays[r] );
+            len += n;
+        }
+        n = Com_sprintf_truncated( buf + len, maxlen - len,
+            "],\"ground\":%.1f,\"ceiling\":%.1f,\"slick\":%d}", ground, ceiling, slick );
+        len += n;
+    }
 
     return len;
 }
