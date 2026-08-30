@@ -64,11 +64,22 @@ TARGET_COMPILE_DEFINITIONS(botlib PRIVATE BOTLIB)
 AUX_SOURCE_DIRECTORY(code/server SERVER_SRCS)
 list(REMOVE_ITEM SERVER_SRCS code/server/sv_rankings.c)
 
+# FlatBuffers wire protocol for the Python bridge (sv_bot_bridge.c). Vendored flatcc
+# runtime (needed to BUILD buffers; reading is header-only). Schema + generated header
+# + runtime under code/flatcc/ (see code/flatcc/README.md).
+set(FLATCC_SRCS
+    code/flatcc/runtime/builder.c
+    code/flatcc/runtime/emitter.c
+    code/flatcc/runtime/refmap.c
+    code/flatcc/runtime/verifier.c)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/code/flatcc
+                    ${CMAKE_CURRENT_SOURCE_DIR}/code/flatcc/include)
+
 # universal binary
-ADD_LIBRARY(qcommon OBJECT ${QCOMMON_SRCS} ${SERVER_SRCS})
+ADD_LIBRARY(qcommon OBJECT ${QCOMMON_SRCS} ${SERVER_SRCS} ${FLATCC_SRCS})
 
 # dedicated server
-ADD_LIBRARY(qcommon_ded OBJECT ${QCOMMON_SRCS} ${SERVER_SRCS})
+ADD_LIBRARY(qcommon_ded OBJECT ${QCOMMON_SRCS} ${SERVER_SRCS} ${FLATCC_SRCS})
 TARGET_COMPILE_DEFINITIONS(qcommon_ded PUBLIC DEDICATED)
 
 IF(NO_VM_COMPILED)
